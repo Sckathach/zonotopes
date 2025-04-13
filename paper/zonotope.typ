@@ -4,6 +4,8 @@
 
 #codly(languages: codly-languages)
 
+#set heading(numbering: "1.")
+
 #let Eps = $cal(E)$
 #let eps = $epsilon$
 #let phi = $phi.alt$
@@ -19,23 +21,37 @@
 
 == Classical Zonotope
 
-A classical Zonotope abstracts a set of $N in NN$ variables and associates the $k$-th variable with an affine expression $x_k$ using $Eps in NN$ noise symbols defined by:
+A classical Zonotope @aws_introduction_2021 abstracts a set of $N in NN$ variables and associates the $k$-th variable with an affine expression $x_k$ using $Eps in NN$ noise symbols defined by:
 
 $
-x_k = c_k + sum_(i=1)^Eps beta^i_k eps_i = c_k + bb_k dot ei
+  x_k = c_k + sum_(i=1)^Eps beta^i_k eps_i = c_k + bb_k dot ei
 $
 
 where $c_k, beta^i_k in RR$ and $eps_i in [-1, 1]$. The value $x_k$ can deviate from its center coefficient $c_k$ through a series of noise symbols $eps_i$ scaled by the coefficients $beta^i_k$. The set of noise symbols $ei$ is shared among different variables, thus encoding dependencies between $N$ values abstracted by the zonotope.
 
 == Multi-Norm Zonotope Definition
 
-The Multi-norm Zonotope domain extends the classical Zonotope by adding noise symbols $phi_j$ that fulfill the constraint $nnorm(es)_p <= 1$, where $es := (phi_1, dots, phi_(Eps_p))^T$ (see Figure 4 in the paper). If $p = oo$, we recover the classical Zonotope. This new domain allows us to easily express $ell_p$-norm bound balls in terms of the new noise symbols $phi$:
+The Multi-norm Zonotope domain @boanert_fast_2021 extends the classical Zonotope by adding noise symbols $phi_j$ that fulfill the constraint $nnorm(es)_p <= 1$, where $es := (phi_1, dots, phi_(Eps_p))^T$. If $p = oo$, we recover the classical Zonotope. This new domain allows us to easily express $ell_p$-norm bound balls in terms of the new noise symbols $phi$:
 
 $
 x_k = c_k + sum_(i=1)^(Eps_p) alpha^i_k phi_i + sum_(j=1)^(Eps_oo) beta^j_k eps_j = c_k + aa_k dot es + bb_k dot ei
 $
 
 where $c_k, alpha^i_k, beta^j_k in RR$, $nnorm(es)_p <= 1$, and $eps_j in [-1, 1]$.
+
+In the implementation, constants are stored as properties: 
+- `z.p: int` - Special norm, $p$ 
+- `z.q: int` - Dual norm of $p$ (see @sec:dual-norm), $q$
+- `z.Ei: int` - Number of infinity norm error terms, $Eps_p$
+- `z.Es: int` - Number of special norm error terms, $Eps_oo$
+- `z.N: int` - Number of zonotope variables, $N$
+
+_The properties are dynamic, for instance `z.Ei` will give the current $Eps_oo$, as it may change during operations._
+
+#figure(
+  image("assets/example_zonotope.svg"), 
+  caption: [A multi-norm Zonotope with two variables $x = 4 + phi_1 - eps_1 + 2 eps_2$, and $y = 3 + phi_2 + eps_1 + eps_2$, where $nnorm(es)_2<=1$ and $eps_1, eps_2 in [-1, 1]$. The green region indicates the classical Zonotope obtained by removing the $es$ noise symbols.]
+)
 
 == Matrix Representation
 
@@ -49,14 +65,14 @@ $
 
 where $A_(k,i) = alpha^i_k$ and $B_(k,j) = beta^j_k$.
 
-In the implementation: 
-- $A in RR^(N times Eps_p) -> $ `z.W_Es` $in $ `Float[Tensor, "N Es"]` 
-- $B in RR^(N times Eps_oo) -> $ `z.W_Ei` $in $ `Float[Tensor, "N Ei"]` 
-- $c in RR^N ->  $ `z.W_C` $in $ `Float[Tensor, "N"]` 
+In the implementation, error terms are stored in different tensors: 
+-  `z.W_Es: Float[Tensor, "N Es"]` - Special error terms, $A in RR^(N times Eps_p)$ 
+-  `z.W_Ei: Float[Tensor, "N Ei"]` - Infinity error terms, $B in RR^(N times Eps_oo)$
+- `z.W_C: Float[Tensor, "N"]` - Bias or center terms, $c in RR^N$ 
 
 
 
-== Dual Norm
+== Dual Norm <sec:dual-norm>
 
 For a given vector $z in RR^N$, the dual norm $nnorm(z)^*_p$ of the $ell_p$ norm is defined as:
 
@@ -66,30 +82,99 @@ $
 
 The dual norm $nnorm(z)^*_p$ is the $ell_q$ norm where $q$ satisfies the relationship $1/p + 1/q = 1$.
 
-== Lemma 1
+== Computing Concrete Bounds - `z.concretize()`
 The tight lower and upper bounds of $z dot x$ where $x in RR^N$ s.t. $nnorm(x)_p <= 1$ are given by:
 
 $
-l^q_k = -nnorm(z)_q \
-u^q_k = nnorm(z)_q
+  l^q_k = -nnorm(z)_q \
+  u^q_k = nnorm(z)_q
 $
 
-== Computing Concrete Bounds
-
-The lower and upper interval bounds of each variable $x_k$ of a Multi-norm Zonotope $x$ can be obtained by leveraging Lemma 1 to compute the bounds of $aa_k dot es$:
+Thus the lower and upper interval bounds of the special terms of the zonotopes can be computed as:  
 
 $
--nnorm(aa_k)_q <= aa_k dot es <= nnorm(aa_k)_q
+  -nnorm(aa_k)_q <= aa_k dot es <= nnorm(aa_k)_q
 $
 
-Given this, the lower and upper bounds $l_k$ and $u_k$ of $x_k$ are:
+Given this, the full lower and upper bounds of the multi-norm Zonotope, $l_k$ and $u_k$ of $x_k$ are:
 
 $
-l_k = c_k - nnorm(aa_k)_q + min(bb_k dot ei) = c_k - nnorm(aa_k)_q - nnorm(bb_k)_1 \
-u_k = c_k + nnorm(aa_k)_q + max(bb_k dot ei) = c_k + nnorm(aa_k)_q + nnorm(bb_k)_1
+  l_k = c_k - nnorm(aa_k)_q + min(bb_k dot ei) = c_k - nnorm(aa_k)_q - nnorm(bb_k)_1 \
+  u_k = c_k + nnorm(aa_k)_q + max(bb_k dot ei) = c_k + nnorm(aa_k)_q + nnorm(bb_k)_1
 $
 
-where we applied Lemma 1 on $bb_k$ for the last term.
+== Sampling a Point from Multi-norm Zonotope - `z.sample_point()`
+
+The sampling procedure consists of two parts. We first sampling the $ell_p$-norm noise symbols by generating points within the $ell_p$-norm unit ball. We then sample the infinity norm noise symbols by generating values in $[-1, 1]$. 
+
+=== Sampling the $ell_p$-norm Noise Symbols
+
+To generate a point within the $ell_p$-norm unit ball:
+
+1. Generate a random vector $v in RR^(Eps_p)$ following a standard normal distribution
+2. Normalize $v$ by its $p$-norm: $v' = v / nnorm(v)_p$
+3. Scale $v'$ by a random factor $r in [0, 1]$ to ensure coverage of the interior of the ball: $es = r dot v'$
+
+This procedure gives us a random point $es$ such that $nnorm(es)_p <= 1$.
+
+=== Sampling the $ell_oo$-norm Noise Symbols
+
+For each $ell_oo$-norm noise symbol $eps_j$, we simply sample a uniform random value in $[-1, 1]$:
+
+$
+ei_j tilde "Uniform"(-1, 1)
+$
+
+== Noise Symbol Reduction - `z.remove_infinity_errors()`
+
+Through the repeated application of abstract transformers during verification, the number of $ell_oo$ noise symbols grows, leading to slower verification and higher memory usage. In fact, every abstract transformer we use, except the one for affine transformations, can yield new noise symbols $eps_("new")$. To address this, we periodically reduce the number of $ell_oo$ noise symbols to ensure an upper bound on the memory usage independent of the network depth, thus creating a tunable tradeoff between precision and speed.
+
+=== $"DecorrelateMin"_k$ Method
+
+We follow the $"DecorrelateMin"_k$ heuristic method @mirman_provable_2020, that reduces the number of $ell_oo$ noise symbols in a Multi-norm Zonotope to $k$. The method works as follows:
+
+1. *Score Calculation*: For each $ell_oo$ noise symbol $eps_j$, we calculate a score $m_j$ representing its significance:
+   
+   $
+   m_j = sum_(i=1)^N |B_(i,j)| = sum_(i=1)^N |beta^j_i|
+   $
+   
+   where $B_(i,j) = beta^j_i$ is the coefficient of the $j$-th noise symbol for the $i$-th variable.
+
+2. *Ranking*: We rank the noise symbols based on their scores and select the top $k$ noise symbols to keep.
+
+3. *Reduction*: We combine the effects of the eliminated noise symbols into a single new noise symbol for each zonotope variable.
+
+Let $I$ denote the indices of the eliminated $ell_oo$ noise symbols and $P$ the indices of the top $k$ $ell_oo$ noise symbols. Then, the new Multi-norm Zonotope is:
+
+$
+x = c + A es + B_P ei_P + [eps_("new",1) sum_(j in I) |beta^j_1|, dots, eps_("new",N) sum_(j in I) |beta^j_N|]
+$
+
+Where:
+- $ei_P$ represents the kept noise symbols with indices in $P$
+- $B_P$ contains only the corresponding columns of $B$
+- $eps_("new",i) in [-1, 1]$ for each $i in {1, 2, dots, N}$ are new $ell_oo$ noise symbols
+
+The coefficient for each new noise symbol $eps_("new",i)$ is computed as the sum of absolute values of the coefficients of the eliminated noise symbols for the $i$-th variable:
+
+$
+sum_(j in I) |beta^j_i|
+$
+
+=== Implementation in the Verification Process
+
+During verification of Transformer networks:
+
+1. The noise symbol reduction is applied to the input embeddings of every Transformer layer, just before the residual connection around the multi-head self-attention.
+
+2. This strategic placement avoids the complexities of handling separate noise reductions in the two branches of the residual connection.
+
+3. The number of retained symbols $k$ can be adjusted based on the available memory and desired precision. A larger $k$ preserves more precision but requires more memory.
+
+This approach effectively controls the growth of noise symbols throughout the network propagation process, ensuring that memory usage remains bounded regardless of network depth, while minimizing precision loss by keeping the most significant noise symbols.
+
+The $"DecorrelateMin"_k$ method creates a favorable balance between verification accuracy and computational efficiency, making it possible to verify deeper networks that would otherwise be intractable.
 
 = Abstract Transformers
 
@@ -107,7 +192,7 @@ This transformer is exact, as it simply applies the affine operation directly to
 
 == ReLU Abstract Transformer
 
-The ReLU abstract transformer defined for the classical Zonotope can be extended naturally to the multi-norm setting since it relies only on the lower and upper bounds of the variables, which are computed using the method described for the Multi-norm Zonotope. 
+The ReLU abstract transformer defined for the classical Zonotope @singh_fast_2018 can be extended naturally to the multi-norm setting @boanert_fast_2021 since it relies only on the lower and upper bounds of the variables, which are computed using the method described for the Multi-norm Zonotope. 
 
 For a zonotope variable $x$ with lower bound $l$ and upper bound $u$, the Multi-norm Zonotope abstract transformer for $"ReLU"(x) = max(0, x)$ is:
 
@@ -290,6 +375,9 @@ The final dot product transformer can combine DeepT-Fast for computing bounds fo
 
 == Softmax Sum Zonotope Refinement
 
+
+@ghorbal_logical_2010
+
 By construction, the outputs $y_1, dots, y_N$ of the softmax function $sigma$ when applied to inputs $x_1, dots, x_N$ satisfy $sum_(i=1)^N y_i = 1$, meaning they form a probability distribution. Thus, in the multi-head self-attention, the role of the softmax is to pick some convex combination of the values $V$, according to the similarity between the query and the keys.
 
 However, this property is not always satisfied for the Multi-norm Zonotope obtained for $Z$ produced by the softmax abstract transformer (Eq. 1). By abuse of notation, we call this Zonotope $Z$. There are many valid instantiations of the noise symbols such that the Zonotope variables do not sum to 1, causing non-convex combinations of values to be picked. To address this, we enforce the constraint that the variables must sum to 1, to ensure that a convex combination is selected and to preserve the semantics of the network in our abstract domain. This is achieved by excluding from the Multi-norm Zonotope $Z$ all invalid instantiations of values, obtaining a refined Multi-norm Zonotope $Z'$ with lower volume, that helps to increase verification precision.
@@ -397,3 +485,6 @@ $
 with $eps_("new",m) in [-1, 1]$.
 
 This three-step refinement process ensures that our Multi-norm Zonotope respects the semantics of the softmax function, improving the precision of our verification procedure.
+
+
+#bibliography(title: "References", "ref.bib")

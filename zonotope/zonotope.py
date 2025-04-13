@@ -2,6 +2,7 @@ import gc
 from typing import Optional, Tuple, Union
 
 import torch as t
+from einops import einsum
 from jaxtyping import Float
 from torch import Tensor
 
@@ -56,6 +57,9 @@ class Zonotope:
         self.q = dual_norm(self.p)
 
         self.W_C: Float[Tensor, "N"] = center.clone() if clone else center
+
+        self.device = self.W_C.device
+        self.dtype = self.W_C.dtype
 
         if infinity_terms is None:
             self.W_Ei: Float[Tensor, "N Ei"] = t.zeros(self.N, 0)
@@ -131,65 +135,42 @@ class Zonotope:
         result._mul(scalar)
         return result
 
-    def affine1(self, coeffs: Float[Tensor, "N"], bias: float) -> "Zonotope":
-        assert self.W_C.shape == coeffs.shape
-        result = self.clone()
-        result.W_C = t.dot(coeffs, self.W_C) + bias
-        result.W_Ei = t.matmul(coeffs, self.W_Ei) + bias
-        result.W_Es = t.matmul(coeffs, self.W_Es) + bias
-        return result
+    def sample_point(
+        self, n_samples: int = 1, binary: bool = False
+    ) -> Float[Tensor, "S N"]:
+        special_weights = t.randn(
+            (n_samples, self.Es), device=self.device, dtype=self.dtype
+        )
+        p_norm = t.linalg.norm(special_weights, ord=self.p, dim=-1, keepdim=True)
+        special_weights /= p_norm
 
-    def affine(
-        self, coeffs: Float[Tensor, "N M"], bias: Float[Tensor, "M"]
-    ) -> "Zonotope":
-        assert self.W_C.size(dim=0) == coeffs.size(dim=0)
-        result = self.clone()
-        result.W_C = t.matmul(self.W_C, coeffs) + bias
-        assert result.W_C.size(dim=0) == coeffs.size(dim=1)
-        result.W_Ei = t.matmul(coeffs.T, self.W_Ei) + bias.reshape(1, -1).T
-        result.W_Es = t.matmul(coeffs.T, self.W_Es) + bias.reshape(1, -1).T
-        return result
-
-    def sample_point(self) -> Float[Tensor, "N"]:
-        """
-        Sample a point using the following strategy:
-
-        For special terms:
-            - Generate a random vector in the lp-norm unit ball
-                (generate random normal vector, then normalize by its p-norm)
-            - Scale to be within unit ball by multiplying with a random scaling factor
-                (This ensures we cover the interior of the ball, not just the surface)
-
-        For infinity terms:
-            - Generate random values in [-1, 1] for each infinity noise symbol
-        """
-        result = self.W_C.clone()
-
-        # Special terms
-        if self.Es > 0:
-            # Generate
-            special_weights = t.randn(
-                self.Es, device=self.W_C.device, dtype=self.W_C.dtype
-            )
-            p_norm = t.linalg.norm(special_weights, ord=self.p)
-
-            # Scale
-            random_scale = t.rand(1, device=self.W_C.device, dtype=self.W_C.dtype)[0]
-            special_weights = special_weights / p_norm * random_scale
-
-            for i in range(self.Es):
-                result = result + self.W_Es[:, i] * special_weights[i]
-
-        # Infinity terms
-        if self.Ei > 0:
+        if binary:
             infinity_weights = (
-                t.rand(self.Ei, device=self.W_C.device, dtype=self.W_C.dtype) * 2 - 1
+                t.randint(
+                    0,
+                    2,
+                    (n_samples, self.Ei),
+                    device=self.device,
+                    dtype=self.dtype,
+                )
+                * 2
+                - 1
             )
 
-            for i in range(self.Ei):
-                result = result + self.W_Ei[:, i] * infinity_weights[i]
+        else:
+            random_scale = t.rand(n_samples, device=self.device, dtype=self.dtype)
+            special_weights = einsum(special_weights, random_scale, "s ei, s -> s ei")
 
-        return result
+            infinity_weights = (
+                t.rand((n_samples, self.Ei), device=self.device, dtype=self.dtype) * 2
+                - 1
+            )
+
+        return (
+            self.W_C.unsqueeze(0).repeat(n_samples, 1)
+            + einsum(self.W_Ei, infinity_weights, "N Ei, s Ei -> s N")
+            + einsum(self.W_Es, special_weights, "N Es, s Es -> s N")
+        )
 
     def remove_infinity_errors(self, n_to_keep: int) -> None:
         """Noise symbol reduction (Section 5.1)"""
@@ -215,18 +196,3 @@ class Zonotope:
     __radd__ = add
     __mul__ = mul
     __rmul__ = mul
-
-
-def expand_and_add(a: Zonotope, b: Zonotope) -> Zonotope:
-    a, b = expand_infinity_terms(a, b)
-    return a + b
-
-
-def expand_infinity_terms(a: Zonotope, b: Zonotope) -> Tuple[Zonotope, Zonotope]:
-    if a.Ei > b.Ei:
-        b, a = expand_infinity_terms(b, a)
-        return a, b
-    if b.Ei > a.Ei:
-        a.W_Ei = t.cat([a.W_Ei, t.zeros(a.N, b.Ei - a.Ei)], dim=-1)
-        return a, b
-    return a, b

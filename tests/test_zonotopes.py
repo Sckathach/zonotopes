@@ -12,7 +12,7 @@ from zonotope.functional import (
     softmax_refinement,
     tanh,
 )
-from zonotope.utils import create_test_zonotope, empirical_soundness
+from zonotope.utils import create_zonotope, empirical_soundness
 
 
 def test_zonotope_initialize():
@@ -22,18 +22,18 @@ def test_zonotope_initialize():
     special_terms = [[0.01, 0.02], [0.03, 0.04], [0.05, 0.06]]
 
     # Zonotope with only center
-    z = create_test_zonotope(center)
+    z = create_zonotope(center)
     assert t.allclose(z.W_C, t.tensor(center))
     assert z.W_Ei.shape[-1] == 0
     assert z.W_Es.shape[-1] == 0
 
     # Zonotope with center and infinity terms
-    z = create_test_zonotope(center, infinity_terms=infinity_terms)
+    z = create_zonotope(center, infinity_terms=infinity_terms)
     assert t.allclose(z.W_C, t.tensor(center))
     assert t.allclose(z.W_Ei, t.tensor(infinity_terms))
 
     # Complete zonotope
-    z = create_test_zonotope(
+    z = create_zonotope(
         center,
         infinity_terms=infinity_terms,
         special_terms=special_terms,
@@ -53,7 +53,7 @@ def test_zonotope_concretize():
     infinity_terms = [[0.5, 0.1], [0.2, 0.3], [0.4, 0.6]]
     special_terms = [[0.2, 0.3], [0.1, 0.4], [0.5, 0.2]]
 
-    z = create_test_zonotope(center, infinity_terms, special_terms, p=2)
+    z = create_zonotope(center, infinity_terms, special_terms, p=2)
 
     lower, upper = z.concretize()
 
@@ -78,7 +78,7 @@ def test_zonotope_concretize():
 def test_relu_transformer_all_positive():
     """Test ReLU transformer when all bounds are positive"""
     # Create a zonotope with all positive bounds
-    z = create_test_zonotope(
+    z = create_zonotope(
         [2.0, 3.0, 4.0], infinity_terms=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
     )
 
@@ -96,7 +96,7 @@ def test_relu_transformer_all_positive():
 def test_relu_transformer_all_negative():
     """Test ReLU transformer when all bounds are negative"""
     # Create a zonotope with all negative bounds
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-2.0, -3.0, -4.0], infinity_terms=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
     )
 
@@ -114,7 +114,7 @@ def test_relu_transformer_all_negative():
 def test_relu_transformer_crossing_zero():
     """Test ReLU transformer when bounds cross zero"""
     # Create a zonotope with bounds crossing zero
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [2.0, 0.0], [0.5, 0.0]]
     )
 
@@ -132,7 +132,7 @@ def test_relu_transformer_crossing_zero():
 
 def test_tanh_transformer():
     """Test tanh transformer"""
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-2.0, 0.0, 2.0], infinity_terms=[[0.5, 0.0], [1.0, 0.0], [0.5, 0.0]]
     )
 
@@ -149,7 +149,7 @@ def test_tanh_transformer():
 
 def test_exp_transformer():
     """Test exponential transformer"""
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-1.0, 0.0, 1.0], infinity_terms=[[0.5, 0.0], [0.5, 0.0], [0.5, 0.0]]
     )
 
@@ -165,7 +165,7 @@ def test_exp_transformer():
 def test_reciprocal_transformer():
     """Test reciprocal transformer"""
     # Create test zonotope with positive bounds
-    z = create_test_zonotope(
+    z = create_zonotope(
         [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]]
     )
 
@@ -181,7 +181,7 @@ def test_reciprocal_transformer():
 
 
 def test_dot_product():
-    z = create_test_zonotope(
+    z = create_zonotope(
         [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]]
     )
 
@@ -192,82 +192,8 @@ def test_dot_product():
     empirical_soundness(z, result, lambda x, y: einsum(x, y, "N, N -> N"), b=z)
 
 
-def test_affine1_concrete():
-    z = create_test_zonotope([1.0, 2.0, 3.0])
-    y = z.affine1(t.tensor([1.0, 2.0, 3.0]), 0.5)
-    assert y.N == 1
-    assert y.W_C == 1.0 * 1.0 + 2.0 * 2.0 + 3.0 * 3.0 + 0.5
-
-
-def test_affine1_inf():
-    z = create_test_zonotope(
-        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.3], [0.5, 0.0]]
-    )
-    y = z.affine1(t.tensor([1.1, 2.2, 3.3]), 0.5)
-    assert y.N == 1
-    assert y.W_C == 1.1 * 1.0 + 2.2 * 2.0 + 3.3 * 3.0 + 0.5
-    assert t.isclose(
-        y.W_Ei, t.tensor([1.1 * 0.2 + 2.2 * 0.5 + 3.3 * 0.5 + 0.5, 2.2 * 0.3 + 0.5])
-    ).all()
-
-
-def test_affine_concrete():
-    z = create_test_zonotope([1.0, 2.0, 3.0])
-    y = z.affine(
-        t.tensor(
-            [
-                [1.1, 2.2, 3.3],
-                [4.0, 5.0, 6.0],
-            ]
-        ).T,
-        t.tensor([0.5, 2.0]),
-    )
-    assert t.isclose(
-        y.W_C,
-        t.tensor(
-            [
-                1.1 * 1.0 + 2.2 * 2.0 + 3.3 * 3.0 + 0.5,
-                4.0 * 1.0 + 5.0 * 2.0 + 6.0 * 3.0 + 2.0,
-            ]
-        ),
-    ).all()
-
-
-def test_affine_inf():
-    z = create_test_zonotope(
-        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.3], [0.5, 0.0]]
-    )
-    y = z.affine(
-        t.tensor(
-            [
-                [1.1, 2.2, 3.3],
-                [4.0, 5.0, 6.0],
-            ]
-        ).T,
-        t.tensor([0.5, 2.0]),
-    )
-    assert t.isclose(
-        y.W_C,
-        t.tensor(
-            [
-                1.1 * 1.0 + 2.2 * 2.0 + 3.3 * 3.0 + 0.5,
-                4.0 * 1.0 + 5.0 * 2.0 + 6.0 * 3.0 + 2.0,
-            ]
-        ),
-    ).all()
-    assert t.isclose(
-        y.W_Ei,
-        t.tensor(
-            [
-                [1.1 * 0.2 + 2.2 * 0.5 + 3.3 * 0.5 + 0.5, 2.2 * 0.3 + 0.5],
-                [4.0 * 0.2 + 5.0 * 0.5 + 6.0 * 0.5 + 2.0, 5.0 * 0.3 + 2.0],
-            ]
-        ),
-    ).all()
-
-
 def test_softmax():
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
     )
 
@@ -277,7 +203,7 @@ def test_softmax():
 
 
 def test_softmax_first_refinement():
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
     )
 
@@ -287,7 +213,7 @@ def test_softmax_first_refinement():
 
 
 def test_softmax_second_refinement():
-    z = create_test_zonotope(
+    z = create_zonotope(
         [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
     )
 

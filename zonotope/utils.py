@@ -1,20 +1,26 @@
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import torch as t
+from einops import einsum
+from jaxtyping import Float
+from torch import Tensor
 
 from zonotope.zonotope import Zonotope
 
 
-def create_test_zonotope(
-    center_values, infinity_terms=None, special_terms=None, p=2
+def create_zonotope(
+    center_values: Any,
+    infinity_terms: Any = None,
+    special_terms: Any = None,
+    p: int = 2,
 ) -> Zonotope:
-    center = t.tensor(center_values)
+    center = t.tensor(center_values, dtype=t.float16)
 
     if infinity_terms is not None:
-        infinity_terms = t.tensor(infinity_terms)
+        infinity_terms = t.tensor(infinity_terms, dtype=t.float16)
 
     if special_terms is not None:
-        special_terms = t.tensor(special_terms)
+        special_terms = t.tensor(special_terms, dtype=t.float16)
 
     return Zonotope(
         center=center,
@@ -42,7 +48,9 @@ def empirical_soundness(
         assert t.all(sample < upper + eps)
 
 
-def check_bounds(z, expected_lower, expected_upper) -> None:
+def check_bounds(
+    z: Zonotope, expected_lower: Float[Tensor, "N"], expected_upper: Float[Tensor, "N"]
+) -> None:
     lower, upper = z.concretize()
     assert t.allclose(lower, expected_lower.to(lower.device)), (
         f"Expected lower {expected_lower}, but got {lower}"
@@ -50,3 +58,16 @@ def check_bounds(z, expected_lower, expected_upper) -> None:
     assert t.allclose(upper, expected_upper.to(upper.device)), (
         f"Expected upper {expected_upper}, but got {upper}"
     )
+
+
+def sample_infinite(z: Zonotope) -> Float[Tensor, "S N"]:
+    points = [[-1], [1]]
+    for _ in range(0, z.Ei - 1):
+        new_points = []
+        new_points.extend([x + [-1] for x in points])
+        new_points.extend([x + [1] for x in points])
+        points = new_points
+
+    eps = t.tensor(points, dtype=z.dtype).to(z.device)
+    samples = einsum(z.W_Ei, eps, "N Ei, S Ei -> S N")
+    return z.W_C.unsqueeze(0).repeat(samples.shape[0], 1) + samples
