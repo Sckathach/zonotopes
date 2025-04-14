@@ -7,16 +7,16 @@ from torch import Tensor
 from torch.linalg import norm
 
 from zonotope import DUAL_INFINITY
-from zonotope.zonotope import Zonotope
+from zonotope_nd.zonotope_nd import ZonotopeNd
 
 
-def relu(zonotope: Zonotope) -> Zonotope:
+def relu(z: ZonotopeNd) -> ZonotopeNd:
     """
     Implements the ReLU abstract transformer for Zonotope domain (Section 4.3)
     """
-    lower, upper = zonotope.concretize()
+    lower, upper = z.concretize()
 
-    result = zonotope.clone()
+    result = z.clone()
 
     case_neg = upper <= 0
     case_pos = lower >= 0
@@ -42,8 +42,6 @@ def relu(zonotope: Zonotope) -> Zonotope:
             -lambda_coeff * l_cross, (1 - lambda_coeff) * u_cross
         )
 
-        print(lambda_coeff, mu, beta_new)
-
         # Apply the transformation
         result.W_C[case_cross] = lambda_coeff * result.W_C[case_cross] + mu
 
@@ -56,20 +54,21 @@ def relu(zonotope: Zonotope) -> Zonotope:
                 lambda_coeff.unsqueeze(-1) * result.W_Es[case_cross]
             )
 
+        print(beta_new.shape)
         # Add the new error term
-        beta_new_reshaped = t.zeros(zonotope.N)
+        beta_new_reshaped = t.zeros_like(z.W_C)
         beta_new_reshaped[case_cross] = beta_new
         result.W_Ei = t.cat([result.W_Ei, beta_new_reshaped.unsqueeze(-1)], dim=-1)
 
     return result
 
 
-def tanh(zonotope: Zonotope) -> Zonotope:
+def tanh(z: ZonotopeNd) -> ZonotopeNd:
     """
     Implements the tanh abstract transformer for the Zonotope domain (Section 4.4)
     """
-    lower, upper = zonotope.concretize()
-    result = zonotope.clone()
+    lower, upper = z.concretize()
+    result = z.clone()
 
     tanh_l = t.tanh(lower)
     tanh_u = t.tanh(upper)
@@ -93,12 +92,12 @@ def tanh(zonotope: Zonotope) -> Zonotope:
     return result
 
 
-def exp(zonotope: Zonotope, eps_hat: float = 0.01, eps: float = 1e-6) -> Zonotope:
+def exp(z: ZonotopeNd, eps_hat: float = 0.01, eps: float = 1e-6) -> ZonotopeNd:
     """
     Implements the exponential abstract transformer for the Zonotope domain (Section 4.5)
     """
-    lower, upper = zonotope.concretize()
-    result = zonotope.clone()
+    lower, upper = z.concretize()
+    result = z.clone()
 
     # Calculate exponential values
     exp_l = t.exp(lower)
@@ -142,7 +141,7 @@ def exp(zonotope: Zonotope, eps_hat: float = 0.01, eps: float = 1e-6) -> Zonotop
     return result
 
 
-def reciprocal(zonotope: Zonotope, eps_hat: float = 0.01) -> Zonotope:
+def reciprocal(zonotope: ZonotopeNd, eps_hat: float = 0.01) -> ZonotopeNd:
     """
     Implements the reciprocal abstract transformer for the Zonotope domain (Section 4.6)
     *(This is used for the softmax computation)*
@@ -188,7 +187,7 @@ def reciprocal(zonotope: Zonotope, eps_hat: float = 0.01) -> Zonotope:
     return result
 
 
-def dot_product(a: Zonotope, b: Zonotope) -> Zonotope:
+def dot_product(a: ZonotopeNd, b: ZonotopeNd) -> ZonotopeNd:
     """
     Computes the dot product between two Zonotope vectors (Section 4.8).
 
@@ -200,54 +199,49 @@ def dot_product(a: Zonotope, b: Zonotope) -> Zonotope:
     assert a.W_Ei.shape == b.W_Ei.shape, "Shapes must match for dot product"
 
     def _fast_bounds(
-        v: Float[t.Tensor, "N E1"],
-        w: Float[t.Tensor, "N E2"],
+        v: Float[t.Tensor, "... N E1"],
+        w: Float[t.Tensor, "... N E2"],
         norm_v: float,
         norm_w: float,
-    ) -> Tuple[float, float]:
-        bound = float(
-            norm(
-                einsum(norm(w, ord=norm_w, dim=0), v.abs(), "N, N E1 -> E1"),
-                ord=norm_v,
-                dim=0,
-            ).item()
+    ) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
+        bound = norm(
+            einsum(norm(w, ord=norm_w, dim=0), v.abs(), "... N, ... N E1 -> ... E1"),
+            ord=norm_v,
+            dim=-1,
         )
         return -bound, bound
 
     def _precise_bounds(
-        v: Float[t.Tensor, "N Ei"], w: Float[t.Tensor, "N Ei"]
-    ) -> Tuple[float, float]:
+        v: Float[t.Tensor, "... N Ei"], w: Float[t.Tensor, "... N Ei"]
+    ) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
         """
         Compute more precise bounds for infinity terms interactions.
         This implements the method from Equation (6) in the paper.
         """
-        terms = einsum(v, w, "N Ei, N Ej -> Ei Ej")
-        diag_terms = terms.diag()
-        off_diag_terms = terms - t.eye(v.shape[1]) * terms.diag()
+        terms = einsum(v, w, "... N Ei, ... N Ej -> ... N Ei Ej")
+        x = terms.diagonal(dim1=-1, dim2=-2).sum(dim=[-1, -2])
+        y = terms.sum(dim=[-1, -2, -3]) - x
 
-        x = float(diag_terms.sum().item())
-        y = float(off_diag_terms.sum().item())
-
-        upper_bound = max(x + y, x - y, -y, y)
-        lower_bound = min(x + y, x - y, -y, y)
+        upper_bound = t.maximum(t.maximum(t.maximum(x + y, x - y), -y), y)
+        lower_bound = t.minimum(t.minimum(t.minimum(x + y, x - y), -y), y)
 
         return lower_bound, upper_bound
 
     result = a.clone()
 
     # 1. Handle center term
-    result.W_C = einsum(a.W_C, b.W_C, "N, N -> N")
+    result.W_C = einsum(a.W_C, b.W_C, "... N, ... N ->...")
 
     # 2. Handle the linear terms
     if a.Ei > 0:
-        result.W_Ei = einsum(a.W_C, b.W_Ei, "N, N Ei -> N Ei") + einsum(
-            b.W_C, a.W_Ei, "N, N Ei -> N Ei"
-        )
+        result.W_Ei = einsum(a.W_C, b.W_Ei, "..., ... Ei -> Ei").unsqueeze(0) + einsum(
+            b.W_C, a.W_Ei, "..., ... Ei -> Ei"
+        ).unsqueeze(0)
 
     if a.Es > 0:
-        result.W_Es = einsum(a.W_C, b.W_Es, "N, N Es -> N Es") + einsum(
-            b.W_C, a.W_Es, "N, N Es -> N Es"
-        )
+        result.W_Es = einsum(a.W_C, b.W_Es, "..., ... Es -> Es").unsqueeze(0) + einsum(
+            b.W_C, a.W_Es, "..., ... Es -> Es"
+        ).unsqueeze(0)
 
     # 3. Handle mixed terms
     l_phi_phi, l_phi_eps, l_eps_phi, l_eps_eps = 0.0, 0.0, 0.0, 0.0
@@ -278,7 +272,13 @@ def dot_product(a: Zonotope, b: Zonotope) -> Zonotope:
         result.W_C = result.W_C + mu
 
         result.W_Ei = t.cat(
-            [result.W_Ei, (t.ones(a.N) * beta_new).unsqueeze(-1)], dim=-1
+            [
+                result.W_Ei,
+                t.tensor(
+                    [beta_new], device=result.W_Ei.device, dtype=result.W_Ei.dtype
+                ).unsqueeze(0),
+            ],
+            dim=-1,
         )
 
     return result
@@ -297,7 +297,7 @@ def _compute_diff(w: Float[Tensor, "N ..."]) -> Float[Tensor, "N N ..."]:
     return w_expanded - rearrange(w_expanded, "Ni Nj ... -> Nj Ni ...")
 
 
-def softmax(zonotope: Zonotope) -> Zonotope:
+def softmax(zonotope: ZonotopeNd) -> ZonotopeNd:
     """
     Implements the softmax abstract transformer for Zonotope domain (Section 5.2)
 
@@ -307,14 +307,14 @@ def softmax(zonotope: Zonotope) -> Zonotope:
         - New error terms are shared among variables (over approx).
         - The resulting sofmax variables do not sum to one! Consider using softmax_refinement.
     """
-    result = Zonotope(
+    result = ZonotopeNd(
         center=t.zeros(zonotope.N),
         infinity_terms=t.zeros(zonotope.N, zonotope.Ei + 2),
         special_terms=t.zeros(zonotope.N, zonotope.Es),
         special_norm=zonotope.p,
     )
     for i in range(zonotope.N):
-        diff_i = Zonotope(
+        diff_i = ZonotopeNd(
             center=zonotope.W_C - zonotope.W_C[i],
             infinity_terms=zonotope.W_Ei - zonotope.W_Ei[i],
             special_terms=zonotope.W_Es - zonotope.W_Es[i],
@@ -323,7 +323,7 @@ def softmax(zonotope: Zonotope) -> Zonotope:
 
         exp_i = exp(diff_i)
 
-        sum_i = Zonotope(
+        sum_i = ZonotopeNd(
             center=exp_i.W_C.sum(dim=0, keepdim=True),
             infinity_terms=exp_i.W_Ei.sum(dim=0, keepdim=True),
             special_terms=exp_i.W_Es.sum(dim=0, keepdim=True),
@@ -339,7 +339,7 @@ def softmax(zonotope: Zonotope) -> Zonotope:
     return result
 
 
-def softmax_refinement(z: Zonotope) -> Zonotope:
+def softmax_refinement(z: ZonotopeNd) -> ZonotopeNd:
     """
     Implements the three-step softmax refinement process (Section 5.3)
     """
@@ -438,10 +438,10 @@ def softmax_refinement(z: Zonotope) -> Zonotope:
     return result
 
 
-def refine_softmax_bounds(result: Zonotope) -> Zonotope:
+def refine_softmax_bounds(result: ZonotopeNd) -> ZonotopeNd:
     # Step 3: Tighten the bounds of the noise symbols
     # Calculate the sum constraint: S = 1 - sum_yi' = 0
-    sum_constraint = Zonotope(
+    sum_constraint = ZonotopeNd(
         center=t.tensor([1.0 - result.W_C.sum()], device=result.W_C.device),
         infinity_terms=-result.W_Ei.sum(dim=0, keepdim=True),
         special_terms=-result.W_Es.sum(dim=0, keepdim=True),

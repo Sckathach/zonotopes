@@ -1,6 +1,10 @@
+from typing import Literal, Tuple
+
 import einops
 import torch as t
 import torch.nn as nn
+import transformer_lens as tl
+from huggingface_hub import hf_hub_download
 from jaxtyping import Float, Int
 from pydantic import BaseModel
 from torch import Tensor
@@ -26,8 +30,8 @@ class Embed(nn.Module):
         nn.init.normal_(self.W_E, std=self.cfg.init_range)
 
     def forward(
-        self, tokens: Int[Tensor, "batch position"]
-    ) -> Float[Tensor, "batch position d_model"]:
+        self, tokens: Int[Tensor, "batch seq_len"]
+    ) -> Float[Tensor, "batch seq_len d_model"]:
         return self.W_E[tokens]
 
 
@@ -39,11 +43,13 @@ class PosEmbed(nn.Module):
         nn.init.normal_(self.W_pos, std=self.cfg.init_range)
 
     def forward(
-        self, tokens: Int[Tensor, "batch position"]
-    ) -> Float[Tensor, "batch position d_model"]:
+        self, tokens: Int[Tensor, "batch seq_len"]
+    ) -> Float[Tensor, "batch seq_len d_model"]:
         batch, seq_len = tokens.shape
         return einops.repeat(
-            self.W_pos[:seq_len], "seq d_model -> batch seq d_model", batch=batch
+            self.W_pos[:seq_len],
+            "seq_len d_model -> batch seq_len d_model",
+            batch=batch,
         )
 
 
@@ -200,3 +206,53 @@ class AttnOnlyTransformer(nn.Module):
             residual = block(residual, shortformer_pos_embed)
         logits = self.unembed(residual)
         return logits
+
+
+def load_model(
+    model_name: Literal["attn_only_2L_half"] = "attn_only_2L_half",
+) -> Tuple[AttnOnlyTransformer, tl.HookedTransformer]:
+    match model_name:
+        case "attn_only_2L_half":
+            cfg = tl.HookedTransformerConfig(
+                d_model=768,
+                d_head=64,
+                n_heads=12,
+                n_layers=2,
+                n_ctx=2048,
+                d_vocab=50278,
+                attention_dir="causal",
+                attn_only=True,  # defaults to False
+                tokenizer_name="EleutherAI/gpt-neox-20b",
+                seed=398,
+                use_attn_result=True,
+                normalization_type=None,  # defaults to "LN", i.e. layernorm with weights & biases
+                positional_embedding_type="shortformer",
+            )
+
+            repo_id = "callummcdougall/attn_only_2L_half"
+            filename = "attn_only_2L_half.pth"
+            device = "cuda"
+
+            weights_path = hf_hub_download(repo_id=repo_id, filename=filename)
+            model = tl.HookedTransformer(cfg)
+            pretrained_weights = t.load(
+                weights_path, map_location=device, weights_only=True
+            )
+            model.load_state_dict(pretrained_weights)
+
+            attn_model = AttnOnlyTransformer(
+                Config(
+                    d_model=768,
+                    d_head=64,
+                    n_heads=12,
+                    n_layers=2,
+                    n_ctx=2048,
+                    d_vocab=50278,
+                )
+            )
+            attn_model.load_state_dict(pretrained_weights)
+
+            return attn_model, model
+
+        case _:
+            raise ValueError("This model is not supported yet.")
