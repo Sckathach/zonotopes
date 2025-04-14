@@ -5,6 +5,7 @@
 #codly(languages: codly-languages)
 
 #set heading(numbering: "1.")
+#set math.equation(numbering: "(1)")
 
 #let Eps = $cal(E)$
 #let eps = $epsilon$
@@ -122,21 +123,19 @@ This procedure gives us a random point $es$ such that $nnorm(es)_p <= 1$.
 For each $ell_oo$-norm noise symbol $eps_j$, we simply sample a uniform random value in $[-1, 1]$:
 
 $
-ei_j tilde "Uniform"(-1, 1)
+  ei_j tilde "Uniform"(-1, 1)
 $
 
 == Noise Symbol Reduction - `z.remove_infinity_errors()`
 
-Through the repeated application of abstract transformers during verification, the number of $ell_oo$ noise symbols grows, leading to slower verification and higher memory usage. In fact, every abstract transformer we use, except the one for affine transformations, can yield new noise symbols $eps_("new")$. To address this, we periodically reduce the number of $ell_oo$ noise symbols to ensure an upper bound on the memory usage independent of the network depth, thus creating a tunable tradeoff between precision and speed.
-
-=== $"DecorrelateMin"_k$ Method
+// Through the repeated application of abstract transformers during verification, the number of $ell_oo$ noise symbols grows, leading to slower verification and higher memory usage. In fact, every abstract transformer we use, except the one for affine transformations, can yield new noise symbols $eps_("new")$. To address this, we periodically reduce the number of $ell_oo$ noise symbols to ensure an upper bound on the memory usage independent of the network depth, thus creating a tunable tradeoff between precision and speed.
 
 We follow the $"DecorrelateMin"_k$ heuristic method @mirman_provable_2020, that reduces the number of $ell_oo$ noise symbols in a Multi-norm Zonotope to $k$. The method works as follows:
 
 1. *Score Calculation*: For each $ell_oo$ noise symbol $eps_j$, we calculate a score $m_j$ representing its significance:
    
    $
-   m_j = sum_(i=1)^N |B_(i,j)| = sum_(i=1)^N |beta^j_i|
+    m_j = sum_(i=1)^N |B_(i,j)| = sum_(i=1)^N |beta^j_i|
    $
    
    where $B_(i,j) = beta^j_i$ is the coefficient of the $j$-th noise symbol for the $i$-th variable.
@@ -148,239 +147,214 @@ We follow the $"DecorrelateMin"_k$ heuristic method @mirman_provable_2020, that 
 Let $I$ denote the indices of the eliminated $ell_oo$ noise symbols and $P$ the indices of the top $k$ $ell_oo$ noise symbols. Then, the new Multi-norm Zonotope is:
 
 $
-x = c + A es + B_P ei_P + [eps_("new",1) sum_(j in I) |beta^j_1|, dots, eps_("new",N) sum_(j in I) |beta^j_N|]
+  x = c + A es + B_P ei_P + mat(sum_(j in I) |beta^j_1|; dots;  sum_(j in I) |beta^j_N|) ei_"new"
 $
 
 Where:
 - $ei_P$ represents the kept noise symbols with indices in $P$
 - $B_P$ contains only the corresponding columns of $B$
-- $eps_("new",i) in [-1, 1]$ for each $i in {1, 2, dots, N}$ are new $ell_oo$ noise symbols
+- $ei_"new" in [-1, 1]^N$ is the new noise symbol
 
-The coefficient for each new noise symbol $eps_("new",i)$ is computed as the sum of absolute values of the coefficients of the eliminated noise symbols for the $i$-th variable:
-
-$
-sum_(j in I) |beta^j_i|
-$
-
-=== Implementation in the Verification Process
-
-During verification of Transformer networks:
-
-1. The noise symbol reduction is applied to the input embeddings of every Transformer layer, just before the residual connection around the multi-head self-attention.
-
-2. This strategic placement avoids the complexities of handling separate noise reductions in the two branches of the residual connection.
-
-3. The number of retained symbols $k$ can be adjusted based on the available memory and desired precision. A larger $k$ preserves more precision but requires more memory.
-
-This approach effectively controls the growth of noise symbols throughout the network propagation process, ensuring that memory usage remains bounded regardless of network depth, while minimizing precision loss by keeping the most significant noise symbols.
-
-The $"DecorrelateMin"_k$ method creates a favorable balance between verification accuracy and computational efficiency, making it possible to verify deeper networks that would otherwise be intractable.
-
-= Abstract Transformers
+= Abstract Transformers - `functional`
 
 == Affine Abstract Transformer
 
 The abstract transformer for an affine combination $z = a x_1 + b x_2 + c$ of two Multi-norm Zonotope variables $x_1 = c_1 + aa_1 dot es + bb_1 dot ei$ and $x_2 = c_2 + aa_2 dot es + bb_2 dot ei$, is:
 
 $
-z = a x_1 + b x_2 + c \
-= a(c_1 + aa_1 dot es + bb_1 dot ei) + b(c_2 + aa_2 dot es + bb_2 dot ei) + c \
-= (a c_1 + b c_2 + c) + (a aa_1 + b aa_2) dot es + (a bb_1 + b bb_2) dot ei
+  z &= a x_1 + b x_2 + c \
+  &= a(c_1 + aa_1 dot es + bb_1 dot ei) + b(c_2 + aa_2 dot es + bb_2 dot ei) + c \
+  &= (a c_1 + b c_2 + c) + (a aa_1 + b aa_2) dot es + (a bb_1 + b bb_2) dot ei
 $
 
 This transformer is exact, as it simply applies the affine operation directly to the Multi-norm Zonotope representation without introducing any over-approximation.
 
-== ReLU Abstract Transformer
+== ReLU Abstract Transformer 
 
 The ReLU abstract transformer defined for the classical Zonotope @singh_fast_2018 can be extended naturally to the multi-norm setting @boanert_fast_2021 since it relies only on the lower and upper bounds of the variables, which are computed using the method described for the Multi-norm Zonotope. 
 
 For a zonotope variable $x$ with lower bound $l$ and upper bound $u$, the Multi-norm Zonotope abstract transformer for $"ReLU"(x) = max(0, x)$ is:
 
 $
-y = cases(
-  0, "if" u < 0,
-  x, "if" l > 0,
-  lambda x + mu + beta_"new" eps_"new", "otherwise"
-)
+  y = cases(
+    0\, &"if" u < 0,
+    x\, &"if" l > 0,
+    lambda x + mu + beta_"new" eps_"new"\, space space &"otherwise"
+  )
 $
 
 where $eps_"new" in [-1, 1]$ denotes a new noise symbol, and:
 
 $
-lambda = u / (u - l) \
-mu = 0.5 max(-lambda l, (1 - lambda)u) \
-beta_"new" = 0.5 max(-lambda l, (1 - lambda)u)
+  lambda &= u / (u - l) \
+  beta_"new" = mu &= 0.5 max(-lambda l, (1 - lambda)u) \
 $
 
 We note that the newly introduced noise symbol $eps_"new"$ is an $ell_oo$ noise symbol. This holds for all $eps_"new"$ in the following transformers as well.
 
-The bounds $l$ and $u$ for a Multi-norm Zonotope variable $x_k = c_k + aa_k dot es + bb_k dot ei$ are computed as:
-
-$
-l_k = c_k - nnorm(aa_k)_q + min(bb_k dot ei) = c_k - nnorm(aa_k)_q - nnorm(bb_k)_1 \
-u_k = c_k + nnorm(aa_k)_q + max(bb_k dot ei) = c_k + nnorm(aa_k)_q + nnorm(bb_k)_1
-$
-
-where $q$ satisfies the relationship $1/p + 1/q = 1$ with $p$ being the norm used for $es$.
-
 == Tanh Abstract Transformer
 
-To support the tanh function present in the pooling layer, we extend the abstract transformer for the tanh to the multi-norm setting. As with ReLU, the abstract transformer is applied element-wise. The abstract transformer for the operation $y = tanh(x)$ is:
+The abstract transformer for the operation $y = tanh(x)$ is:
 
 $
-y = lambda x + mu + beta_"new" eps_"new"
+  y = lambda x + mu + beta_"new" eps_"new"
 $
 
-where $eps_"new" in [-1, 1]$ denotes a new noise symbol and:
+where:
 
 $
-lambda = min(1 - tanh^2(l), 1 - tanh^2(u)) \
-mu = 1/2 (tanh(u) + tanh(l) - lambda(u + l)) \
-beta_"new" = 1/2 (tanh(u) - tanh(l) - lambda(u - l))
+  lambda &= min(1 - tanh^2(l), 1 - tanh^2(u)) \
+  mu &= 1/2 (tanh(u) + tanh(l) - lambda(u + l)) \
+  beta_"new" &= 1/2 (tanh(u) - tanh(l) - lambda(u - l))
 $
-
-The bounds $l$ and $u$ are computed as in the ReLU transformer.
 
 == Exponential Abstract Transformer
-
-Since the softmax function $sigma$ requires the exponential, we define the abstract transformer for the exponential function that minimizes the area of the output zonotope and ensures its lower bound is positive, which is required by the reciprocal abstract transformer that will be applied afterward.
 
 The operation $y = e^x$ can be modeled through the element-wise abstract transformer:
 
 $
-y = lambda x + mu + beta_"new" eps_"new"
+  y = lambda x + mu + beta_"new" eps_"new"
 $
 
-where $eps_"new" in [-1, 1]$ denotes a new noise symbol, and:
+where:
 
 $
-lambda = e^(t_"opt") \
-mu = 0.5(e^(t_"opt") - lambda t_"opt" + e^u - lambda u) \
-beta_"new" = 0.5(lambda t_"opt" - e^(t_"opt") + e^u - lambda u)
+  lambda &= e^(t_"opt") \
+  mu &= 0.5(e^(t_"opt") - lambda t_"opt" + e^u - lambda u) \
+  beta_"new" &= 0.5(lambda t_"opt" - e^(t_"opt") + e^u - lambda u)
 $
 
 and
 
 $
-t_"opt" = min(t_"crit", t_"crit,2") \
-t_"crit" = log((e^u - e^l)/(u - l)) \
-t_"crit,2" = l + 1 - hat(eps)
+  t_"opt" &= min(t_"crit", t_"crit,2") \
+  t_"crit" &= log((e^u - e^l)/(u - l)) \
+  t_"crit,2" &= l + 1 - hat(eps)
 $
 
 Here, $hat(eps)$ is a small positive constant value, such as 0.01. The choice $t_"opt" = min(t_"crit", t_"crit,2")$ ensures that $y$ is positive.
 
 == Reciprocal Abstract Transformer
 
-To obtain the minimal area abstract transformer for the reciprocal function, which is required for the softmax, we use a similar approach to the exponential transformer. The abstract transformer for $y = 1/x$ with $x > 0$ is given by:
+The abstract transformer for $y = 1/x$ with $x > 0$ is given by:
 
 $
-y = lambda x + mu + beta_"new" eps_"new"
+  y = lambda x + mu + beta_"new" eps_"new"
 $
 
-where $eps_"new" in [-1, 1]$ denotes a new noise symbol and:
+where:
 
 $
-lambda = -1/(t_"opt")^2 \
-mu = 0.5(1/t_"opt" - lambda dot t_"opt" + 1/l - lambda l) \
-beta_"new" = 0.5(lambda dot t_"opt" - 1/t_"opt" + 1/l - lambda l)
+  lambda &= -1/t_"opt"^2 \
+  mu &= 0.5(1/t_"opt" - lambda dot t_"opt" + 1/l - lambda l) \
+  beta_"new" &= 0.5(lambda dot t_"opt" - 1/t_"opt" + 1/l - lambda l)
 $
 
 and
 
 $
-t_"opt" = min(t_"crit", t_"crit,2") \
-t_"crit" = sqrt(u l) \
-t_"crit,2" = 0.5 u + hat(eps)
+  t_"opt" &= min(t_"crit", t_"crit,2") \
+  t_"crit" &= sqrt(u l) \
+  t_"crit,2" &= 0.5 u + hat(eps)
 $
 
 Similarly to the exponential transformer, $hat(eps)$ is a small positive constant and $t_"opt" = min(t_"crit", t_"crit,2")$ ensures that $y$ is positive.
 
 == Dot Product Abstract Transformer
 
+#let v1 = $arrow(v)_1$
+#let v2 = $arrow(v)_2$
+#let c1 = $arrow(c)_1$
+#let c2 = $arrow(c)_2$
+
+
 Next, we define the abstract transformer for the dot product between pairs of vectors of variables of a Multi-norm Zonotope. The transformer is used in the multi-head self-attention, specifically in the matrix multiplications between $Q$ and $K$ and between the result of the softmax and $V$.
 
-For two Multi-norm Zonotope vectors $vec(v)_1 = vec(c)_1 + A_1 es + B_1 ei$ and $vec(v)_2 = vec(c)_2 + A_2 es + B_2 ei$, computing the dot product produces the output variable $y$:
+For two Multi-norm Zonotope vectors $v1 = c1 + A_1 es + B_1 ei$ and $v2 = c2 + A_2 es + B_2 ei$, computing the dot product produces the output variable $y$:
 
 $
-y = vec(v)_1 dot vec(v)_2 = (vec(c)_1 + A_1 es + B_1 ei) dot (vec(c)_2 + A_2 es + B_2 ei) \
-= vec(c)_1 dot vec(c)_2 + (vec(c)_1^T A_2 + vec(c)_2^T A_1) es + (vec(c)_1^T B_2 + vec(c)_2^T B_1) ei \
-+ (A_1 es + B_1 ei) dot (A_2 es + B_2 ei)
+  y &= v1 dot v2 = (c1 + A_1 es + B_1 ei) dot (c2 + A_2 es + B_2 ei) \
+  &= c1 dot c2 + (c1^T A_2 + c2^T A_1) es + (c1^T B_2 + c2^T B_1) ei + (A_1 es + B_1 ei) dot (A_2 es + B_2 ei)
 $
 
 The last term represents interactions between noise symbols and is not in the functional form of a Multi-norm Zonotope. We first expand it:
 
 $
-(A_1 es + B_1 ei) dot (A_2 es + B_2 ei) = (A_1 es) dot (A_2 es) + (A_1 es) dot (B_2 ei) \
-+ (B_1 ei) dot (A_2 es) + (B_1 ei) dot (B_2 ei)
+  (A_1 es + B_1 ei) dot (A_2 es + B_2 ei) = (A_1 es) dot (A_2 es) + (A_1 es) dot (B_2 ei) + (B_1 ei) dot (A_2 es) + (B_1 ei) dot (B_2 ei)
 $
 
-Each of these 4 terms contains a different combination of noise symbols and coefficients. We calculate interval bounds for each combination, e.g., $[l_{es,ei}, u_{es,ei}]$ for $(A_1 es) dot (B_2 ei)$. Then the sum of the lower and upper bounds:
+Each of these 4 terms contains a different combination of noise symbols and coefficients. We calculate interval bounds for each combination, e.g., $l_(es,ei), u_(es,ei)$ for $(A_1 es) dot (B_2 ei)$. Then the sum of the lower and upper bounds:
 
 $
-l = l_{es,es} + l_{es,ei} + l_{ei,es} + l_{ei,ei} \
-u = u_{es,es} + u_{es,ei} + u_{ei,es} + u_{ei,ei}
+  l = l_(es,es) + l_(es,ei) + l_(ei,es) + l_(ei,ei) \
+  u = u_(es,es) + u_(es,ei) + u_(ei,es) + u_(ei,ei)
 $
 
 bounds the whole term $l ≤ (A_1 es + B_1 ei) dot (A_2 es + B_2 ei) ≤ u$.
 
-=== Fast Bounds $l_gamma,delta, u_gamma,delta$ (DeepT-Fast)
+=== Fast Bounds $l_(gamma,delta), u_(gamma,delta)$ (DeepT-Fast @boanert_fast_2021)
+#let ww = $arrow(w)$
 
 To compute bounds for a generic expression $(V xi_(p_1)) dot (W xi_(p_2))$, where $V$ and $W$ are matrices such that $V xi_(p_1)$ and $W xi_(p_2)$ have the same dimension and $nnorm(xi_(p_1))_(p_1) ≤ 1$ and $nnorm(xi_(p_2))_(p_2) ≤ 1$, we first compute an upper bound for the absolute value:
 
 $
-|(V xi_(p_1)) dot (W xi_(p_2))| = |xi_(p_1)^T V^T W xi_(p_2)| ≤ |xi_(p_1)^T V^T| |W xi_(p_2)|
+  |(V xi_(p_1)) dot (W xi_(p_2))| = |xi_(p_1)^T V^T W xi_(p_2)| ≤ |xi_(p_1)^T V^T| |W xi_(p_2)|
 $
 
-Using Lemma 1, we can bound the elements $|vec(w)_j dot xi_(p_2)|$ of the vector $|W xi_(p_2)|$, where $vec(w)_j$ denotes the $j$-th row of $W$ and $ell_(q_2)$ is the dual norm of $ell_(p_2)$:
+Using Lemma 1, we can bound the elements $|ww_j dot xi_(p_2)|$ of the vector $|W xi_(p_2)|$, where $ww_j$ denotes the $j$-th row of $W$ and $ell_(q_2)$ is the dual norm of $ell_(p_2)$:
 
 $
-|(V xi_(p_1)) dot (W xi_(p_2))| ≤ |xi_(p_1)^T V^T| mat(|vec(w)_1 dot xi_(p_2)|, dots, |vec(w)_N dot xi_(p_2)|) \
-≤ |xi_(p_1)^T V^T| mat(nnorm(vec(w)_1)_(q_2), dots, nnorm(vec(w)_N)_(q_2)) \
-= mat(nnorm(vec(w)_1)_(q_2), dots, nnorm(vec(w)_N)_(q_2))^T |V xi_(p_1)| \
-≤ mat(nnorm(vec(w)_1)_(q_2), dots, nnorm(vec(w)_N)_(q_2))^T |V| |xi_(p_1)| \
-≤ nnorm(mat(nnorm(vec(w)_1)_(q_2), dots, nnorm(vec(w)_N)_(q_2))^T |V|)_(q_1)
+  |(V xi_(p_1)) dot (W xi_(p_2))| &≤ |xi_(p_1)^T V^T| mat(|ww_1 dot xi_(p_2)|; dots; |ww_N dot xi_(p_2)|) \
+  &≤ |xi_(p_1)^T V^T| mat(nnorm(ww_1)_(q_2), dots, nnorm(ww_N)_(q_2)) \
+  &= mat(nnorm(ww_1)_(q_2); dots; nnorm(ww_N)_(q_2))^T |V xi_(p_1)| 
+  ≤ mat(nnorm(ww_1)_(q_2); dots; nnorm(ww_N)_(q_2))^T |V| |xi_(p_1)| 
+  ≤ norm(mat(nnorm(ww_1)_(q_2); dots; nnorm(ww_N)_(q_2))^T |V|)_(q_1)
 $
 
 where $ell_(q_1)$ is the dual norm of $ell_(p_1)$.
 
 The complexity to compute this bound is $O(N(Eps_p + Eps_oo))$.
 
-=== More Precise Bounds $l_{ei,ei}, u_{ei,ei}$ (DeepT-Precise)
+=== More Precise Bounds $l_(ei,ei), u_(ei,ei)$ (DeepT-Precise @boanert_fast_2021)
+#let vv = $arrow(v)$
 
-In the case where our Multi-norm Zonotope has solely $ell_oo$ noise symbols (i.e., $p_1 = p_2 = oo$), meaning $xi_(p_1) = xi_(p_2) = ei$, a tighter approximation using interval analysis can be achieved at the cost of increasing the computational complexity to $O(N Eps_oo^2)$.
+For the infinity noise interaction, a tighter approximation using interval analysis can be achieved at the cost of increasing the computational complexity to $O(N Eps_oo^2)$.
 
 We begin by summing coefficients related to each pair of noise symbols:
 
 $
-(V ei) dot (W ei) = sum_(i=1)^(Eps_oo) sum_(j=1)^(Eps_oo) (vec(v)_i dot vec(w)_j) eps_i eps_j
+  (V ei) dot (W ei) = sum_(i=1)^(Eps_oo) sum_(j=1)^(Eps_oo) (vv_i dot ww_j) eps_i eps_j
 $
 
-where $vec(v)_i$ and $vec(w)_j$ denote the $i$-th and $j$-th column of $V$ and $W$, respectively. We separate $eps_i^2$ and $eps_i eps_j$ to arrive at:
+where $vv_i$ and $ww_j$ denote the $i$-th and $j$-th column of $V$ and $W$, respectively. We separate $eps_i^2$ and $eps_i eps_j$ to arrive at:
 
 $
-(V ei) dot (W ei) = sum_(i=1)^(Eps_oo) (vec(v)_i dot vec(w)_i) eps_i^2 + sum_(i!=j) (vec(v)_i dot vec(w)_j) eps_i eps_j
+  (V ei) dot (W ei) = sum_(i=1)^(Eps_oo) (vv_i dot ww_i) eps_i^2 + sum_(i!=j) (vv_i dot ww_j) eps_i eps_j
 $
 
 Since $eps_i^2 in [0, 1]$ and $eps_i eps_j in [-1, 1]$, we have:
 
 $
-(V ei) dot (W ei) in sum_(i=1)^(Eps_oo) (vec(v)_i dot vec(w)_i) [0, 1] + sum_(i!=j) (vec(v)_i dot vec(w)_j) [-1, 1]
+  (V ei) dot (W ei) in sum_(i=1)^(Eps_oo) (vv_i dot ww_i) [0, 1] + sum_(i!=j) (vv_i dot ww_j) [-1, 1]
 $
 
-Using interval analysis, we can calculate the lower and upper interval bounds $l_{ei,ei}$ and $u_{ei,ei}$.
+Using interval analysis, we can calculate the lower and upper interval bounds $l_(ei,ei)$ and $u_(ei,ei)$.
 
-The final dot product transformer can combine DeepT-Fast for computing bounds for the mixed terms $(l_{es,es}, u_{es,es})$, $(l_{es,ei}, u_{es,ei})$, and $(l_{ei,es}, u_{ei,es})$, while using DeepT-Precise for computing $(l_{ei,ei}, u_{ei,ei})$.
+== Softmax Abstract Transformer 
 
+The softmax can be computed with: 
 
+$
+  sigma_i (x_1, dots, x_N) = e^(x_i) / (sum_(j=1)^N e^(x_j)) = 1 / (sum_(j=1)^N e^(x_j - x_i)) 
+$ <eq:softmax>
 
-== Softmax Sum Zonotope Refinement
+The latter formula being more numerically stable.
 
-
-@ghorbal_logical_2010
+=== Softmax Sum Zonotope Refinement @ghorbal_logical_2010
 
 By construction, the outputs $y_1, dots, y_N$ of the softmax function $sigma$ when applied to inputs $x_1, dots, x_N$ satisfy $sum_(i=1)^N y_i = 1$, meaning they form a probability distribution. Thus, in the multi-head self-attention, the role of the softmax is to pick some convex combination of the values $V$, according to the similarity between the query and the keys.
 
-However, this property is not always satisfied for the Multi-norm Zonotope obtained for $Z$ produced by the softmax abstract transformer (Eq. 1). By abuse of notation, we call this Zonotope $Z$. There are many valid instantiations of the noise symbols such that the Zonotope variables do not sum to 1, causing non-convex combinations of values to be picked. To address this, we enforce the constraint that the variables must sum to 1, to ensure that a convex combination is selected and to preserve the semantics of the network in our abstract domain. This is achieved by excluding from the Multi-norm Zonotope $Z$ all invalid instantiations of values, obtaining a refined Multi-norm Zonotope $Z'$ with lower volume, that helps to increase verification precision.
+However, this property is not always satisfied for the Multi-norm Zonotope obtained for $Z$ produced by the softmax abstract transformer @eq:softmax. By abuse of notation, we call this Zonotope $Z$. There are many valid instantiations of the noise symbols such that the Zonotope variables do not sum to 1, causing non-convex combinations of values to be picked. To address this, we enforce the constraint that the variables must sum to 1, to ensure that a convex combination is selected and to preserve the semantics of the network in our abstract domain. This is achieved by excluding from the Multi-norm Zonotope $Z$ all invalid instantiations of values, obtaining a refined Multi-norm Zonotope $Z'$ with lower volume, that helps to increase verification precision.
 
 We leverage Zonotope constraint methods, which produce refined Zonotopes given some equality constraints. A three-step process is used to refine all Zonotope variables $y_1, dots, y_N$ by:
 
@@ -469,11 +443,11 @@ $
 Which implies that the range of $eps_m$ is restricted to $[a_m, b_m] sect [-1, 1]$ where:
 
 $
-a_m = 1/|beta^m_S| [c_S - nnorm(aa_S)_q - nnorm(bb_S)_1]
+a_m = 1/(|beta^m_S|) (c_S - nnorm(aa_S)_q - nnorm(bb_S)_1)
 $
 
 $
-b_m = 1/|beta^m_S| [c_S + nnorm(aa_S)_q + nnorm(bb_S)_1]
+b_m = 1/(|beta^m_S|) (c_S + nnorm(aa_S)_q + nnorm(bb_S)_1)
 $
 
 Note that because the noise symbol reduction process assumes all noise symbols $ei$ have range $[-1, 1]$, prior to it a pre-processing step occurs where all noise symbols $eps_m$ with tightened bounds $[a_m, b_m] subset [-1, 1]$ are re-written as:
