@@ -138,39 +138,47 @@ class Zonotope:
     def sample_point(
         self, n_samples: int = 1, binary: bool = False
     ) -> Float[Tensor, "S N"]:
-        special_weights = t.randn(
-            (n_samples, self.Es), device=self.device, dtype=self.dtype
-        )
-        p_norm = t.linalg.norm(special_weights, ord=self.p, dim=-1, keepdim=True)
-        special_weights /= p_norm
+        result = self.W_C.unsqueeze(0).repeat(n_samples, 1)
 
-        if binary:
-            infinity_weights = (
-                t.randint(
-                    0,
-                    2,
-                    (n_samples, self.Ei),
-                    device=self.device,
-                    dtype=self.dtype,
+        if self.Es > 0:
+            special_weights = t.randn(
+                (n_samples, self.Es), device=self.device, dtype=self.dtype
+            )
+            p_norm = t.linalg.norm(special_weights, ord=self.p, dim=-1, keepdim=True)
+            special_weights /= p_norm
+
+            if not binary:
+                random_scale = t.rand(n_samples, device=self.device, dtype=self.dtype)
+                special_weights = einsum(
+                    special_weights, random_scale, "s ei, s -> s ei"
                 )
-                * 2
-                - 1
-            )
 
-        else:
-            random_scale = t.rand(n_samples, device=self.device, dtype=self.dtype)
-            special_weights = einsum(special_weights, random_scale, "s ei, s -> s ei")
+            result += einsum(self.W_Es, special_weights, "N Es, s Es -> s N")
 
-            infinity_weights = (
-                t.rand((n_samples, self.Ei), device=self.device, dtype=self.dtype) * 2
-                - 1
-            )
+        if self.Ei > 0:
+            if binary:
+                infinity_weights = (
+                    t.randint(
+                        0,
+                        2,
+                        (n_samples, self.Ei),
+                        device=self.device,
+                        dtype=self.dtype,
+                    )
+                    * 2
+                    - 1
+                )
 
-        return (
-            self.W_C.unsqueeze(0).repeat(n_samples, 1)
-            + einsum(self.W_Ei, infinity_weights, "N Ei, s Ei -> s N")
-            + einsum(self.W_Es, special_weights, "N Es, s Es -> s N")
-        )
+            else:
+                infinity_weights = (
+                    t.rand((n_samples, self.Ei), device=self.device, dtype=self.dtype)
+                    * 2
+                    - 1
+                )
+
+            result += einsum(self.W_Ei, infinity_weights, "N Ei, s Ei -> s N")
+
+        return result
 
     def remove_infinity_errors(self, n_to_keep: int) -> None:
         """Noise symbol reduction (Section 5.1)"""

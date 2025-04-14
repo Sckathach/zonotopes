@@ -41,8 +41,6 @@ def relu(zonotope: Zonotope) -> Zonotope:
             -lambda_coeff * l_cross, (1 - lambda_coeff) * u_cross
         )
 
-        print(lambda_coeff, mu, beta_new)
-
         # Apply the transformation
         result.W_C[case_cross] = lambda_coeff * result.W_C[case_cross] + mu
 
