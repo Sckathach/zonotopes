@@ -5,7 +5,7 @@ from einops import einsum
 from jaxtyping import Float
 from torch import Tensor
 
-from zonotope import dual_norm
+from zonotope.utils import dual_norm
 
 
 class Zonotope:
@@ -22,26 +22,26 @@ class Zonotope:
 
     def __init__(
         self,
-        center: Float[Tensor, "N"],
-        infinity_terms: Optional[Float[Tensor, "N Ei"]] = None,
-        special_terms: Optional[Float[Tensor, "N Es"]] = None,
+        center: Float[Tensor, "..."],
+        infinity_terms: Optional[Float[Tensor, "... Ei"]] = None,
+        special_terms: Optional[Float[Tensor, "... Es"]] = None,
         special_norm: int = 2,
         clone: bool = True,
     ) -> None:
         self.p = special_norm
         self.q = dual_norm(self.p)
 
-        self.W_C: Float[Tensor, "N"] = center.clone() if clone else center
+        self.W_C: Float[Tensor, "..."] = center.clone() if clone else center
 
         if infinity_terms is None:
-            self.W_Ei: Float[Tensor, "N Ei"] = t.zeros(
-                *self.shape, 0, device=self.device, dtype=self.dtype
+            self.W_Ei: Float[Tensor, "... Ei"] = t.zeros(
+                *self.shape, 0, dtype=self.dtype, device=self.device
             )
         else:
             self.W_Ei = infinity_terms.clone() if clone else infinity_terms
         if special_terms is None:
-            self.W_Es: Float[Tensor, "N Es"] = t.zeros(
-                *self.shape, 0, device=self.device, dtype=self.dtype
+            self.W_Es: Float[Tensor, "... Es"] = t.zeros(
+                *self.shape, 0, dtype=self.dtype, device=self.device
             )
         else:
             self.W_Es = special_terms.clone() if clone else special_terms
@@ -74,8 +74,9 @@ class Zonotope:
     def dtype(self) -> t.dtype:
         return self.W_C.dtype
 
-    def concretize(self) -> Tuple[Float[Tensor, "N"], Float[Tensor, "N"]]:
+    def concretize(self) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
         """Computer lower and upper bounds of the zonotope (Section 4.1)"""
+        self.update_zeros()
         norm_infinity_terms = t.linalg.norm(self.W_Ei, ord=1, dim=-1)
         norm_special_terms = t.linalg.norm(self.W_Es, ord=self.q, dim=-1)
 
@@ -83,6 +84,12 @@ class Zonotope:
         upper = self.W_C + norm_infinity_terms + norm_special_terms
 
         return lower, upper
+
+    def update_zeros(self) -> None:
+        if self.Es == 0:
+            self.W_Es = t.zeros(*self.shape, 0, dtype=self.dtype, device=self.device)
+        if self.Ei == 0:
+            self.W_Ei = t.zeros(*self.shape, 0, dtype=self.dtype, device=self.device)
 
     def clone(self) -> "Zonotope":
         return Zonotope(
@@ -94,7 +101,9 @@ class Zonotope:
         )
 
     def _add(self, other: Union["Zonotope", float, Tensor]) -> None:
+        self.update_zeros()
         if isinstance(other, Zonotope):
+            other.update_zeros()
             assert self.Ei == other.Ei
             assert self.Es == other.Es
             assert self.W_C.shape == other.W_C.shape
@@ -125,7 +134,7 @@ class Zonotope:
 
     def sample_point(
         self, n_samples: int = 1, binary: bool = False
-    ) -> Float[Tensor, "S N"]:
+    ) -> Float[Tensor, "S ..."]:
         result = self.W_C.unsqueeze(0).repeat(n_samples, 1)
 
         if self.Es > 0:
@@ -138,10 +147,10 @@ class Zonotope:
             if not binary:
                 random_scale = t.rand(n_samples, device=self.device, dtype=self.dtype)
                 special_weights = einsum(
-                    special_weights, random_scale, "s ei, s -> s ei"
+                    special_weights, random_scale, "S Ei, S -> S Ei"
                 )
 
-            result += einsum(self.W_Es, special_weights, "N Es, s Es -> s N")
+            result += einsum(self.W_Es, special_weights, "... Es, S Es -> S ...")
 
         if self.Ei > 0:
             if binary:
@@ -164,29 +173,9 @@ class Zonotope:
                     - 1
                 )
 
-            result += einsum(self.W_Ei, infinity_weights, "N Ei, s Ei -> s N")
+            result += einsum(self.W_Ei, infinity_weights, "... Ei, S Ei -> S ...")
 
         return result
-
-    def remove_infinity_errors(self, n_to_keep: int) -> None:
-        """Noise symbol reduction (Section 5.1)"""
-        ranked_indices = self.W_Ei.abs().sum(dim=0).topk(self.Ei).indices
-
-        self.W_Ei = t.cat(
-            [
-                self.W_Ei[:, ranked_indices[:n_to_keep]],
-                self.W_Ei[:, ranked_indices[n_to_keep:]].sum(dim=-1, keepdim=True),
-            ],
-            dim=-1,
-        )
-
-    def __str__(self) -> str:
-        lower, upper = self.concretize()
-        difference = upper - lower
-        return f"""Zonotope:
-        Mean abs, lower: {lower.abs().mean().item():.5f}, upper: {upper.abs().mean().item():.5f}
-        Difference, min: {difference.min().item():.5f}, max: {difference.max().item():.5f}, mean: {difference.mean().item():.5f}
-        """
 
     __add__ = add
     __radd__ = add

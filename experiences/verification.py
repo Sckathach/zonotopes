@@ -5,9 +5,9 @@ import numpy as np
 import torch as t
 from torch import Tensor
 
-from zonotope import ORANGE, PINK, TURQUOISE, VIOLET
 from zonotope.functional import relu
-from zonotope.modules import affine_transformer
+from zonotope.nn.affine import affine_transformer
+from zonotope.plot.theme import ORANGE, PINK, TURQUOISE, VIOLET
 from zonotope.zonotope import Zonotope
 
 

@@ -3,7 +3,7 @@ from typing import Tuple
 import einops
 import torch as t
 import torch.nn as nn
-import tqdm
+import tqdm  # type: ignore
 import transformer_lens as tl
 from jaxtyping import Float, Int
 from pydantic import BaseModel

@@ -7,6 +7,7 @@
         "jaxtyping (>=0.3.1,<0.4.0)",
         "torch (>=2.6.0,<3.0.0)",
         "einx[torch] (>=0.3.0,<0.4.0)",
+        "tqdm (>=4.67.1,<5.0.0)",
     ]
     description=""
     name="zonotopes"
@@ -30,7 +31,6 @@
 
 [tool.poetry.group.playground.dependencies]
     scikit-learn="^1.6.1"
-    tqdm="^4.67.1"
     transformer-lens="^2.15.0"
 
 [[tool.mypy.overrides]]
