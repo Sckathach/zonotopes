@@ -84,13 +84,13 @@ class Zonotope:
         special_terms: Any = None,
         p: int = 2,
     ) -> "Zonotope":
-        center = t.tensor(center_values, dtype=t.float16)
+        center = t.tensor(center_values, dtype=t.float)
 
         if infinity_terms is not None:
-            infinity_terms = t.tensor(infinity_terms, dtype=t.float16)
+            infinity_terms = t.tensor(infinity_terms, dtype=t.float)
 
         if special_terms is not None:
-            special_terms = t.tensor(special_terms, dtype=t.float16)
+            special_terms = t.tensor(special_terms, dtype=t.float)
 
         return cls(
             center=center,

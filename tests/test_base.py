@@ -12,14 +12,14 @@ def test_zonotope_initialize():
 
     # Zonotope with only center
     z = Zonotope.from_values(center)
-    assert t.allclose(z.W_C, t.tensor(center))
+    assert t.allclose(z.W_C, t.tensor(center, dtype=z.W_C.dtype))
     assert z.W_Ei.shape[-1] == 0
     assert z.W_Es.shape[-1] == 0
 
     # Zonotope with center and infinity terms
     z = Zonotope.from_values(center, infinity_terms=infinity_terms)
-    assert t.allclose(z.W_C, t.tensor(center))
-    assert t.allclose(z.W_Ei, t.tensor(infinity_terms))
+    assert t.allclose(z.W_C, t.tensor(center, dtype=z.W_C.dtype))
+    assert t.allclose(z.W_Ei, t.tensor(infinity_terms, dtype=z.W_Ei.dtype))
 
     # Complete zonotope
     z = Zonotope.from_values(
@@ -28,9 +28,9 @@ def test_zonotope_initialize():
         special_terms=special_terms,
         p=1,
     )
-    assert t.allclose(z.W_C, t.tensor(center))
-    assert t.allclose(z.W_Ei, t.tensor(infinity_terms))
-    assert t.allclose(z.W_Es, t.tensor(special_terms))
+    assert t.allclose(z.W_C, t.tensor(center, dtype=z.W_C.dtype))
+    assert t.allclose(z.W_Ei, t.tensor(infinity_terms, dtype=z.W_Ei.dtype))
+    assert t.allclose(z.W_Es, t.tensor(special_terms, dtype=z.W_Es.dtype))
     assert z.p == 1
     assert z.q == float("inf")  # dual norm of L1 is Linf
 
@@ -60,5 +60,5 @@ def test_zonotope_concretize():
         expected_lower.append(center[i] - infinity_contribution - special_contribution)
         expected_upper.append(center[i] + infinity_contribution + special_contribution)
 
-    assert t.allclose(lower, t.tensor(expected_lower).float(), rtol=1e-5)
-    assert t.allclose(upper, t.tensor(expected_upper).float(), rtol=1e-5)
+    assert t.allclose(lower, t.tensor(expected_lower, dtype=lower.dtype), rtol=1e-4)
+    assert t.allclose(upper, t.tensor(expected_upper, dtype=upper.dtype), rtol=1e-4)

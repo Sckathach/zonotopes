@@ -1,5 +1,6 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
+import einx
 import torch as t
 from jaxtyping import Float
 from torch import Tensor
@@ -16,13 +17,23 @@ def empirical_soundness(
     eps: float = 1e-5,
 ) -> None:
     lower, upper = result.concretize()
-    for _ in range(n_points):
-        if b is not None:
-            sample = concrete_fn(a.sample_point(), b.sample_point())
-        else:
-            sample = concrete_fn(a.sample_point())
-        assert t.all(lower - eps < sample)
-        assert t.all(sample < upper + eps)
+    if b is not None:
+        sample = concrete_fn(
+            a.sample_point(n_points),
+            b.sample_point(n_points),
+        )
+    else:
+        sample = concrete_fn(a.sample_point())
+
+    lower = cast(
+        Tensor, einx.rearrange("... -> n_points ...", lower, n_points=n_points)
+    )
+    upper = cast(
+        Tensor, einx.rearrange("... -> n_points ...", upper, n_points=n_points)
+    )
+
+    assert t.all(lower - eps < sample)
+    assert t.all(sample < upper + eps)
 
 
 def check_bounds(

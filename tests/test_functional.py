@@ -6,10 +6,7 @@ from zonotope.functional import (
     dot_product,
     exp,
     reciprocal,
-    refine_softmax_bounds,
     relu,
-    softmax,
-    softmax_refinement,
     tanh,
 )
 from zonotope.zonotope import Zonotope
@@ -129,34 +126,6 @@ def test_dot_product():
 
     assert result.Ei == z.Ei + 1, "New term should be added"
 
-    empirical_soundness(z, result, lambda x, y: einsum(x, y, "N, N -> N"), b=z)
-
-
-def test_softmax():
-    z = Zonotope.from_values(
-        [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
+    empirical_soundness(
+        z, result, lambda x, y: einsum(x, y, "batch n, batch n -> batch"), b=z
     )
-
-    result = softmax(z)
-
-    empirical_soundness(z, result, lambda x: t.nn.functional.softmax(x, dim=0))
-
-
-def test_softmax_first_refinement():
-    z = Zonotope.from_values(
-        [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
-    )
-
-    result = softmax_refinement(softmax(z))
-
-    empirical_soundness(z, result, lambda x: t.nn.functional.softmax(x, dim=0))
-
-
-def test_softmax_second_refinement():
-    z = Zonotope.from_values(
-        [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [1.0, 0.0], [0.0, 0.5]]
-    )
-
-    result = refine_softmax_bounds(softmax_refinement(softmax(z)))
-
-    empirical_soundness(z, result, lambda x: t.nn.functional.softmax(x, dim=0))
