@@ -125,7 +125,7 @@ class Zonotope:
             clone=True,
         )
 
-    def _add(self, other: Union["Zonotope", float, Tensor]) -> None:
+    def _add(self, other: Union["Zonotope", float, int, Tensor]) -> None:
         self.update_zeros()
         if isinstance(other, Zonotope):
             other.update_zeros()
@@ -136,25 +136,45 @@ class Zonotope:
             self.W_C += other.W_C
             self.W_Ei += other.W_Ei
             self.W_Es += other.W_Es
+
         else:
             self.W_C += other
-            self.W_Ei += other
-            self.W_Es += other
 
-    def add(self, other: Union["Zonotope", float, Tensor]) -> "Zonotope":
+    def add(self, other: Union["Zonotope", float, int, Tensor]) -> "Zonotope":
         result = self.clone()
         result._add(other)
         return result
 
-    def _mul(self, scalar: Union[float, int, Tensor]) -> None:
+    def _mul(
+        self, other: Union[float, int, Tensor], pattern: Optional[str] = None
+    ) -> None:
         """Multiply this zonotope by a scalar in-place"""
-        self.W_C *= scalar
-        self.W_Ei *= scalar
-        self.W_Es *= scalar
+        if pattern is None:
+            self.W_C *= other
+            self.W_Ei *= other
+            self.W_Es *= other
 
-    def mul(self, scalar: Union[float, int, Tensor]) -> "Zonotope":
+        else:
+            assert isinstance(other, Tensor)
+
+            dims_a, dims_bc = pattern.split(",")
+            dims_b, dims_c = dims_bc.split("->")
+
+            self.W_C = einsum(self.W_C, other, pattern)
+            self.W_Ei = einsum(
+                self.W_Ei, other, f"{dims_a} Ei, {dims_b} -> {dims_c} Ei"
+            )
+            self.W_Es = einsum(
+                self.W_Es, other, f"{dims_a} Es, {dims_b} -> {dims_c} Es"
+            )
+
+            self.update_zeros()
+
+    def mul(
+        self, other: Union[float, int, Tensor], pattern: Optional[str] = None
+    ) -> "Zonotope":
         result = self.clone()
-        result._mul(scalar)
+        result._mul(other, pattern)
         return result
 
     def sample_point(

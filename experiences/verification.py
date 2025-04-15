@@ -6,7 +6,7 @@ import torch as t
 from torch import Tensor
 
 from zonotope.functional import relu
-from zonotope.nn.affine import affine_transformer
+from zonotope.nn.main import linear
 from zonotope.plot.theme import ORANGE, PINK, TURQUOISE, VIOLET
 from zonotope.zonotope import Zonotope
 
@@ -55,12 +55,12 @@ def verify_network_robustness(
     # Propagate the zonotope through the network
     for layer in model.layers[:-1]:
         # Linear transformation
-        z = affine_transformer(z, layer.weight, layer.bias)
+        z = linear(z, layer.weight, layer.bias)
         # ReLU activation
         z = relu(z)
 
     # Final layer (linear transformation only)
-    z = affine_transformer(z, model.layers[-1].weight, model.layers[-1].bias)
+    z = linear(z, model.layers[-1].weight, model.layers[-1].bias)
 
     # Get the concrete bounds of the output zonotope
     lower_bound, upper_bound = z.concretize()
@@ -121,9 +121,9 @@ def compare_concrete_vs_abstract_propagation(
     # Propagate the zonotope through the network
     z = input_zonotope
     for _, layer in enumerate(model.layers[:-1]):
-        z = affine_transformer(z, layer.weight, layer.bias)
+        z = linear(z, layer.weight, layer.bias)
         z = relu(z)
-    z = affine_transformer(z, model.layers[-1].weight, model.layers[-1].bias)
+    z = linear(z, model.layers[-1].weight, model.layers[-1].bias)
 
     # Get bounds from the output zonotope
     lower_bound, upper_bound = z.concretize()
