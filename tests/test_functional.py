@@ -7,6 +7,7 @@ from zonotope.functional import (
     exp,
     reciprocal,
     relu,
+    softmax,
     tanh,
 )
 from zonotope.zonotope import Zonotope
@@ -129,3 +130,13 @@ def test_dot_product():
     empirical_soundness(
         z, result, lambda x, y: einsum(x, y, "batch n, batch n -> batch"), b=z
     )
+
+
+def test_softmax():
+    z = Zonotope.from_values(
+        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.0, 1.0]]
+    )
+
+    result = softmax(z)
+
+    empirical_soundness(z, result, lambda x: x.softmax(-1))

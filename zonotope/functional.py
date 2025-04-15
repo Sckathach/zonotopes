@@ -301,59 +301,29 @@ def dot_product(a: Zonotope, b: Zonotope, pattern: str) -> Zonotope:
     return result
 
 
-def _compute_diff(w: Float[Tensor, "N ..."]) -> Float[Tensor, "N N ..."]:
-    """
-    Will be used in the fast softmax implementation. The diff are computed at once, removing the for i in range(z.N) loop.
+def softmax(z: Zonotope) -> Zonotope:
+    N = z.W_C.shape[-1]
+    center_expanded = repeat(z.W_C, "... Ni -> ... Ni Nj", Nj=N)
+    special_expanded = repeat(z.W_Es, "... Ni Es -> ... Ni Nj Es", Nj=N)
+    infinity_expanded = repeat(z.W_Ei, "... Ni Ei -> ... Ni Nj Ei", Nj=N)
 
-    Returns diff (Nj Ni ...)
-        vi - vj = diff[j, i]
-
-    Works with shape 0 ..., will output 0 0 ...
-    """
-    w_expanded = repeat(w, "... -> N ...", N=w.shape[0])
-    return w_expanded - rearrange(w_expanded, "Ni Nj ... -> Nj Ni ...")
-
-
-def softmax(zonotope: Zonotope) -> Zonotope:
-    """
-    Implements the softmax abstract transformer for Zonotope domain (Section 5.2)
-
-    Current implementation:
-        - Line per line to avoid building NxNxEi tensors.
-        - Adds two error terms, one for the exponential and one for the reciprocal.
-        - New error terms are shared among variables (over approx).
-        - The resulting sofmax variables do not sum to one! Consider using softmax_refinement.
-    """
-    result = Zonotope(
-        center=t.zeros(zonotope.N),
-        infinity_terms=t.zeros(zonotope.N, zonotope.Ei + 2),
-        special_terms=t.zeros(zonotope.N, zonotope.Es),
-        special_norm=zonotope.p,
+    z_diff = Zonotope(
+        center=center_expanded - rearrange(center_expanded, "... Ni Nj -> ... Nj Ni"),
+        special_terms=special_expanded
+        - rearrange(special_expanded, "... Ni Nj Es -> ... Nj Ni Es"),
+        infinity_terms=infinity_expanded
+        - rearrange(infinity_expanded, "... Ni Nj Ei -> ... Nj Ni Ei"),
     )
-    for i in range(zonotope.N):
-        diff_i = Zonotope(
-            center=zonotope.W_C - zonotope.W_C[i],
-            infinity_terms=zonotope.W_Ei - zonotope.W_Ei[i],
-            special_terms=zonotope.W_Es - zonotope.W_Es[i],
-            special_norm=zonotope.p,
-        )
 
-        exp_i = exp(diff_i)
+    z_exp = exp(z_diff)
 
-        sum_i = Zonotope(
-            center=exp_i.W_C.sum(dim=0, keepdim=True),
-            infinity_terms=exp_i.W_Ei.sum(dim=0, keepdim=True),
-            special_terms=exp_i.W_Es.sum(dim=0, keepdim=True),
-            special_norm=zonotope.p,
-        )
+    z_sum = Zonotope(
+        center=z_exp.W_C.sum(dim=-2),
+        special_terms=z_exp.W_Es.sum(dim=-3),
+        infinity_terms=z_exp.W_Ei.sum(dim=-3),
+    )
 
-        reciprocal_i = reciprocal(sum_i)
-
-        result.W_C[i] = reciprocal_i.W_C[0]
-        result.W_Ei[i] = reciprocal_i.W_Ei[0]
-        result.W_Es[i] = reciprocal_i.W_Es[0]
-
-    return result
+    return reciprocal(z_sum)
 
 
 def softmax_refinement(z: Zonotope) -> Zonotope:
