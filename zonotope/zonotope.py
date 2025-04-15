@@ -1,11 +1,13 @@
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch as t
 from einops import einsum
 from jaxtyping import Float
 from torch import Tensor
 
-from zonotope.utils import dual_norm
+
+def dual_norm(p: float) -> float:
+    return float("inf") if p == 1 else p / (p - 1)
 
 
 class Zonotope:
@@ -73,6 +75,29 @@ class Zonotope:
     @property
     def dtype(self) -> t.dtype:
         return self.W_C.dtype
+
+    @classmethod
+    def from_values(
+        cls,
+        center_values: Any,
+        infinity_terms: Any = None,
+        special_terms: Any = None,
+        p: int = 2,
+    ) -> "Zonotope":
+        center = t.tensor(center_values, dtype=t.float16)
+
+        if infinity_terms is not None:
+            infinity_terms = t.tensor(infinity_terms, dtype=t.float16)
+
+        if special_terms is not None:
+            special_terms = t.tensor(special_terms, dtype=t.float16)
+
+        return cls(
+            center=center,
+            infinity_terms=infinity_terms,
+            special_terms=special_terms,
+            special_norm=p,
+        )
 
     def concretize(self) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
         """Computer lower and upper bounds of the zonotope (Section 4.1)"""

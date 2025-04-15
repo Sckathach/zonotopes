@@ -6,7 +6,6 @@ from jaxtyping import Float
 from torch import Tensor
 from torch.linalg import norm
 
-from zonotope.utils import DUAL_INFINITY
 from zonotope.zonotope import Zonotope
 
 
@@ -260,14 +259,20 @@ def dot_product(a: Zonotope, b: Zonotope, pattern: str) -> Zonotope:
 
     if a.Es > 0 and b.Ei > 0:
         l_phi_eps, u_phi_eps = _fast_bounds(
-            a.W_Es, b.W_Ei, a_norm=a.q, b_norm=DUAL_INFINITY
+            a.W_Es,
+            b.W_Ei,
+            a_norm=a.q,
+            b_norm=1,  # dual infinity is 1
         )
         lower += l_phi_eps
         upper += u_phi_eps
 
     if a.Ei > 0 and b.Es > 0:
         l_eps_phi, u_eps_phi = _fast_bounds(
-            a.W_Ei, b.W_Es, a_norm=DUAL_INFINITY, b_norm=b.q
+            a.W_Ei,
+            b.W_Es,
+            a_norm=1,
+            b_norm=b.q,  # dual infinity is 1
         )
         lower += l_eps_phi
         upper += u_eps_phi

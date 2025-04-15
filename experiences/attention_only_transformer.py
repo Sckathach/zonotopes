@@ -249,7 +249,7 @@ def load_model(
                     n_ctx=2048,
                     d_vocab=50278,
                 )
-            )
+            ).to(model.cfg.device)
             attn_model.load_state_dict(pretrained_weights)
 
             return attn_model, model

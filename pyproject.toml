@@ -4,9 +4,9 @@
         "circuitsvis (>=1.43.3,<2.0.0)",
         "eindex-callum (>=0.1.2,<0.2.0)",
         "einops (>=0.8.1,<0.9.0)",
+        "einx[torch] (>=0.3.0,<0.4.0)",
         "jaxtyping (>=0.3.1,<0.4.0)",
         "torch (>=2.6.0,<3.0.0)",
-        "einx[torch] (>=0.3.0,<0.4.0)",
         "tqdm (>=4.67.1,<5.0.0)",
     ]
     description=""
@@ -35,7 +35,7 @@
 
 [[tool.mypy.overrides]]
     ignore_missing_imports=true
-    module=["scipy.*", "sklearn.*", "transformer_lens.*"]
+    module=["circuitsvis.*", "scipy.*", "sklearn.*", "transformer_lens.*"]
 
 [tool.pyright]
-    ignore=["scipy", "sklearn", "transformer_lens"]
+    ignore=["circuitsvis", "scipy", "sklearn", "transformer_lens"]
