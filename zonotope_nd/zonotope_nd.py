@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch as t
 from einops import einsum
@@ -33,18 +33,15 @@ class ZonotopeNd:
 
         self.W_C: Float[Tensor, "..."] = center.clone() if clone else center
 
-        self.device = self.W_C.device
-        self.dtype = self.W_C.dtype
-
         if infinity_terms is None:
             self.W_Ei: Float[Tensor, "... Ei"] = t.zeros(
-                self.N, 0, dtype=self.dtype, device=self.device
+                *self.shape, 0, dtype=self.dtype, device=self.device
             )
         else:
             self.W_Ei = infinity_terms.clone() if clone else infinity_terms
         if special_terms is None:
             self.W_Es: Float[Tensor, "... Es"] = t.zeros(
-                self.N, 0, dtype=self.dtype, device=self.device
+                *self.shape, 0, dtype=self.dtype, device=self.device
             )
         else:
             self.W_Es = special_terms.clone() if clone else special_terms
@@ -65,8 +62,21 @@ class ZonotopeNd:
     def N(self) -> int:
         return self.W_C.view(-1).shape[0]
 
+    @property
+    def shape(self) -> t.Size:
+        return self.W_C.shape
+
+    @property
+    def device(self) -> t.device:
+        return self.W_C.device
+
+    @property
+    def dtype(self) -> t.dtype:
+        return self.W_C.dtype
+
     def concretize(self) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
         """Computer lower and upper bounds of the zonotope (Section 4.1)"""
+        self.update_zeros()
         norm_infinity_terms = t.linalg.norm(self.W_Ei, ord=1, dim=-1)
         norm_special_terms = t.linalg.norm(self.W_Es, ord=self.q, dim=-1)
 
@@ -74,6 +84,12 @@ class ZonotopeNd:
         upper = self.W_C + norm_infinity_terms + norm_special_terms
 
         return lower, upper
+
+    def update_zeros(self) -> None:
+        if self.Es == 0:
+            self.W_Es = t.zeros(*self.shape, 0, dtype=self.dtype, device=self.device)
+        if self.Ei == 0:
+            self.W_Ei = t.zeros(*self.shape, 0, dtype=self.dtype, device=self.device)
 
     def clone(self) -> "ZonotopeNd":
         return ZonotopeNd(
@@ -85,7 +101,9 @@ class ZonotopeNd:
         )
 
     def _add(self, other: Union["ZonotopeNd", float, Tensor]) -> None:
+        self.update_zeros()
         if isinstance(other, ZonotopeNd):
+            other.update_zeros()
             assert self.Ei == other.Ei
             assert self.Es == other.Es
             assert self.W_C.shape == other.W_C.shape
@@ -163,3 +181,25 @@ class ZonotopeNd:
     __radd__ = add
     __mul__ = mul
     __rmul__ = mul
+
+
+def create_zonotope(
+    center_values: Any,
+    infinity_terms: Any = None,
+    special_terms: Any = None,
+    p: int = 2,
+) -> ZonotopeNd:
+    center = t.tensor(center_values, dtype=t.float16)
+
+    if infinity_terms is not None:
+        infinity_terms = t.tensor(infinity_terms, dtype=t.float16)
+
+    if special_terms is not None:
+        special_terms = t.tensor(special_terms, dtype=t.float16)
+
+    return ZonotopeNd(
+        center=center,
+        infinity_terms=infinity_terms,
+        special_terms=special_terms,
+        special_norm=p,
+    )

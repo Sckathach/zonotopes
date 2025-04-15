@@ -187,7 +187,7 @@ def reciprocal(zonotope: ZonotopeNd, eps_hat: float = 0.01) -> ZonotopeNd:
     return result
 
 
-def dot_product(a: ZonotopeNd, b: ZonotopeNd) -> ZonotopeNd:
+def dot_product(a: ZonotopeNd, b: ZonotopeNd, pattern: str) -> ZonotopeNd:
     """
     Computes the dot product between two Zonotope vectors (Section 4.8).
 
@@ -195,32 +195,43 @@ def dot_product(a: ZonotopeNd, b: ZonotopeNd) -> ZonotopeNd:
     - Fast variant: Uses dual norm trick for all types of terms
     - Precise variant: Uses more precise bounds for infinity terms
     """
-    assert a.W_C.shape == b.W_C.shape, "Shapes must match for dot product"
-    assert a.W_Ei.shape == b.W_Ei.shape, "Shapes must match for dot product"
+    assert a.Ei == b.Ei, "Shapes must match for dot product"
+
+    dims_a, dims_bc = pattern.split(",")
+    dims_b, dims_c = dims_bc.split("->")
 
     def _fast_bounds(
-        v: Float[t.Tensor, "... N E1"],
-        w: Float[t.Tensor, "... N E2"],
-        norm_v: float,
-        norm_w: float,
-    ) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
+        a_terms: Float[t.Tensor, "dims_a E1"],
+        b_terms: Float[t.Tensor, "dims_b E2"],
+        a_norm: float,
+        b_norm: float,
+    ) -> Tuple[Float[Tensor, "dims_c"], Float[Tensor, "dims_c"]]:
         bound = norm(
-            einsum(norm(w, ord=norm_w, dim=0), v.abs(), "... N, ... N E1 -> ... E1"),
-            ord=norm_v,
+            einsum(
+                norm(b_terms, ord=b_norm, dim=-1),
+                a_terms.abs(),
+                f"{dims_a}, {dims_b} E1 -> {dims_c} E1",
+            ),
+            ord=a_norm,
             dim=-1,
         )
         return -bound, bound
 
     def _precise_bounds(
-        v: Float[t.Tensor, "... N Ei"], w: Float[t.Tensor, "... N Ei"]
-    ) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
+        a_infinity_terms: Float[t.Tensor, "dims_a Ei"],
+        b_infinity_terms: Float[t.Tensor, "dims_b Ei"],
+    ) -> Tuple[Float[Tensor, "dims_c"], Float[Tensor, "dims_c"]]:
         """
         Compute more precise bounds for infinity terms interactions.
         This implements the method from Equation (6) in the paper.
         """
-        terms = einsum(v, w, "... N Ei, ... N Ej -> ... N Ei Ej")
-        x = terms.diagonal(dim1=-1, dim2=-2).sum(dim=[-1, -2])
-        y = terms.sum(dim=[-1, -2, -3]) - x
+        terms = einsum(
+            a_infinity_terms,
+            b_infinity_terms,
+            f"{dims_a} Ei, {dims_b} Ej -> {dims_c} Ei Ej",
+        )
+        x = terms.diagonal(dim1=-1, dim2=-2).sum(dim=-1)
+        y = terms.sum(dim=[-1, -2]) - x
 
         upper_bound = t.maximum(t.maximum(t.maximum(x + y, x - y), -y), y)
         lower_bound = t.minimum(t.minimum(t.minimum(x + y, x - y), -y), y)
@@ -230,56 +241,57 @@ def dot_product(a: ZonotopeNd, b: ZonotopeNd) -> ZonotopeNd:
     result = a.clone()
 
     # 1. Handle center term
-    result.W_C = einsum(a.W_C, b.W_C, "... N, ... N ->...")
+    result.W_C = einsum(a.W_C, b.W_C, pattern)
 
     # 2. Handle the linear terms
     if a.Ei > 0:
-        result.W_Ei = einsum(a.W_C, b.W_Ei, "..., ... Ei -> Ei").unsqueeze(0) + einsum(
-            b.W_C, a.W_Ei, "..., ... Ei -> Ei"
-        ).unsqueeze(0)
+        result.W_Ei = einsum(
+            a.W_C, b.W_Ei, f"{dims_a}, {dims_b} Ei -> {dims_c} Ei"
+        ) + einsum(b.W_C, a.W_Ei, f"{dims_b}, {dims_a} Ei -> {dims_c} Ei")
 
     if a.Es > 0:
-        result.W_Es = einsum(a.W_C, b.W_Es, "..., ... Es -> Es").unsqueeze(0) + einsum(
-            b.W_C, a.W_Es, "..., ... Es -> Es"
-        ).unsqueeze(0)
+        result.W_Es = einsum(
+            a.W_C, b.W_Es, f"{dims_a}, {dims_b} Es -> {dims_c} Es"
+        ) + einsum(b.W_C, a.W_Es, f"{dims_b}, {dims_a} Es -> {dims_c} Es")
 
     # 3. Handle mixed terms
-    l_phi_phi, l_phi_eps, l_eps_phi, l_eps_eps = 0.0, 0.0, 0.0, 0.0
-    u_phi_phi, u_phi_eps, u_eps_phi, u_eps_eps = 0.0, 0.0, 0.0, 0.0
+    lower = t.zeros_like(result.W_C)
+    upper = t.zeros_like(result.W_C)
 
     if a.Es > 0 and b.Ei > 0:
         l_phi_eps, u_phi_eps = _fast_bounds(
-            a.W_Es, b.W_Ei, norm_v=a.q, norm_w=DUAL_INFINITY
+            a.W_Es, b.W_Ei, a_norm=a.q, b_norm=DUAL_INFINITY
         )
+        lower += l_phi_eps
+        upper += u_phi_eps
+
     if a.Ei > 0 and b.Es > 0:
         l_eps_phi, u_eps_phi = _fast_bounds(
-            a.W_Ei, b.W_Es, norm_v=DUAL_INFINITY, norm_w=b.q
+            a.W_Ei, b.W_Es, a_norm=DUAL_INFINITY, b_norm=b.q
         )
+        lower += l_eps_phi
+        upper += u_eps_phi
+
     if a.Es > 0 and b.Es > 0:
-        l_phi_phi, u_phi_phi = _fast_bounds(a.W_Es, b.W_Es, norm_v=a.q, norm_w=b.q)
+        l_phi_phi, u_phi_phi = _fast_bounds(a.W_Es, b.W_Es, a_norm=a.q, b_norm=b.q)
+        lower += l_phi_phi
+        upper += u_phi_phi
 
     if a.Ei > 0 and b.Ei > 0:
         l_eps_eps, u_eps_eps = _precise_bounds(a.W_Ei, b.W_Ei)
-
-    lower = l_phi_phi + l_phi_eps + l_eps_phi + l_eps_eps
-    upper = u_phi_phi + u_phi_eps + u_eps_phi + u_eps_eps
+        lower += l_eps_eps
+        upper += u_eps_eps
 
     # Create new noise symbol
-    if upper > lower:
-        beta_new = (upper - lower) / 2
-        mu = (upper + lower) / 2
+    beta_new = (upper - lower) / 2
+    mu = (upper + lower) / 2
 
-        result.W_C = result.W_C + mu
+    result.W_C = result.W_C + mu
 
-        result.W_Ei = t.cat(
-            [
-                result.W_Ei,
-                t.tensor(
-                    [beta_new], device=result.W_Ei.device, dtype=result.W_Ei.dtype
-                ).unsqueeze(0),
-            ],
-            dim=-1,
-        )
+    result.W_Ei = t.cat(
+        [result.W_Ei, beta_new.unsqueeze(-1)],
+        dim=-1,
+    )
 
     return result
 

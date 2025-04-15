@@ -207,7 +207,7 @@ def dot_product(a: Zonotope, b: Zonotope) -> Zonotope:
     ) -> Tuple[float, float]:
         bound = float(
             norm(
-                einsum(norm(w, ord=norm_w, dim=0), v.abs(), "N, N E1 -> E1"),
+                einsum(norm(w, ord=norm_w, dim=-1), v.abs(), "N, N E1 -> E1"),
                 ord=norm_v,
                 dim=0,
             ).item()

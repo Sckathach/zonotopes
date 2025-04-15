@@ -33,10 +33,6 @@ class Zonotope:
 
         self.W_C: Float[Tensor, "N"] = center.clone() if clone else center
 
-        self.device = self.W_C.device
-        self.dtype = self.W_C.dtype
-        self.shape = self.W_C.shape
-
         if infinity_terms is None:
             self.W_Ei: Float[Tensor, "N Ei"] = t.zeros(
                 *self.shape, 0, device=self.device, dtype=self.dtype
@@ -65,6 +61,18 @@ class Zonotope:
     @property
     def N(self) -> int:
         return self.W_C.view(-1).shape[0]
+
+    @property
+    def shape(self) -> t.Size:
+        return self.W_C.shape
+
+    @property
+    def device(self) -> t.device:
+        return self.W_C.device
+
+    @property
+    def dtype(self) -> t.dtype:
+        return self.W_C.dtype
 
     def concretize(self) -> Tuple[Float[Tensor, "N"], Float[Tensor, "N"]]:
         """Computer lower and upper bounds of the zonotope (Section 4.1)"""
