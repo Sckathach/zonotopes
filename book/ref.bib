@@ -1,0 +1,68 @@
+@article{boanert_fast_2021,
+    author = {Bonaert, Gregory and Dimitrov, Dimitar I. and Baader, Maximilian and Vechev, Martin},
+    title = {Fast and precise certification of transformers},
+    year = {2021},
+    isbn = {9781450383912},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    url = {https://doi.org/10.1145/3453483.3454056},
+    doi = {10.1145/3453483.3454056},
+    abstract = {We present DeepT, a novel method for certifying Transformer networks based on abstract interpretation. The key idea behind DeepT is our new Multi-norm Zonotope abstract domain, an extension of the classical Zonotope designed to handle ℓ1 and ℓ2-norm bound perturbations. We introduce all Multi-norm Zonotope abstract transformers necessary to handle these complex networks, including the challenging softmax function and dot product. Our evaluation shows that DeepT can certify average robustness radii that are 28\texttimes{} larger than the state-of-the-art, while scaling favorably. Further, for the first time, we certify Transformers against synonym attacks on long sequences of words, where each word can be replaced by any synonym. DeepT achieves a high certification success rate on sequences of words where enumeration-based verification would take 2 to 3 orders of magnitude more time.},
+    booktitle = {Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation},
+    pages = {466–481},
+    numpages = {16},
+    keywords = {Abstract Interpretation, Adversarial attacks, Deep Learning, Robustness Certification, Transformer Networks},
+    location = {Virtual, Canada},
+    series = {PLDI 2021}
+}
+
+@article{ghorbal_logical_2010,
+   title={A Logical Product Approach to Zonotope Intersection},
+   ISBN={9783642142956},
+   ISSN={1611-3349},
+   url={http://dx.doi.org/10.1007/978-3-642-14295-6_22},
+   DOI={10.1007/978-3-642-14295-6_22},
+   booktitle={Computer Aided Verification},
+   publisher={Springer Berlin Heidelberg},
+   author={Ghorbal, Khalil and Goubault, Eric and Putot, Sylvie},
+   year={2010},
+   pages={212–226} }
+
+
+@article{aws_introduction_2021,
+      title={Introduction to Neural Network Verification}, 
+      author={Aws Albarghouthi},
+      year={2021},
+      eprint={2109.10317},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+}
+
+@article{niklas_boosting_2021,
+      title={Certify or Predict: Boosting Certified Robustness with Compositional Architectures}, 
+      author={Mark Niklas Müller, Mislav Balunović, Martin Vechev},
+      year={2021},
+}
+
+@article{mirman_provable_2020,
+      title={A Provable Defense for Deep Residual Networks}, 
+      author={Matthew Mirman and Gagandeep Singh and Martin Vechev},
+      year={2020},
+      eprint={1903.12519},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+}
+
+@article{singh_fast_2018,
+    author = {Singh, Gagandeep and Gehr, Timon and Mirman, Matthew and P\"{u}schel, Markus and Vechev, Martin},
+    title = {Fast and effective robustness certification},
+    year = {2018},
+    publisher = {Curran Associates Inc.},
+    address = {Red Hook, NY, USA},
+    abstract = {We present a new method and system, called DeepZ, for certifying neural network robustness based on abstract interpretation. Compared to state-of-the-art automated verifiers for neural networks, DeepZ: (i) handles ReLU, Tanh and Sigmoid activation functions, (ii) supports feedforward and convolutional architectures, (iii) is significantly more scalable and precise, and (iv) and is sound with respect to floating point arithmetic. These benefits are due to carefully designed approximations tailored to the setting of neural networks. As an example, DeepZ achieves a verification accuracy of 97\% on a large network with 88, 500 hidden units under L∞ attack with ε = 0.1 with an average runtime of 133 seconds.},
+    booktitle = {Proceedings of the 32nd International Conference on Neural Information Processing Systems},
+    pages = {10825–10836},
+    numpages = {12},
+    location = {Montr\'{e}al, Canada},
+    series = {NIPS'18}
+}
