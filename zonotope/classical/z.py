@@ -310,11 +310,10 @@ class Zonotope:
     def rearrange(self, pattern: str, **kwargs) -> "Zonotope":
         """Einops rearrange"""
         error_pattern = get_einops_pattern_for_error_terms(pattern)
-        return Zonotope(
+        return self.clone(
             center=einops.rearrange(self.W_C, pattern, **kwargs),
             infinity_terms=einops.rearrange(self.W_Ei, error_pattern, **kwargs),
             special_terms=einops.rearrange(self.W_Es, error_pattern, **kwargs),
-            special_norm=self.p,
         )
 
     def repeat(self, pattern: str, **kwargs) -> "Zonotope":

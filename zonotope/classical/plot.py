@@ -7,7 +7,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial import ConvexHull
 from torch import Tensor
 
-from zonotope.zonotope import Zonotope
+from zonotope.classical.z import Zonotope
 
 LIGHTENING = "33"
 

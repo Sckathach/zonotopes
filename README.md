@@ -1,6 +1,6 @@
 # Multi-norm Zonotope implementation 
 
-- [**Theory**](./book/zonotope.pdf)
+- [**Theory**](./paper/main.pdf)
 
 ## Installation
 > [!IMPORTANT]

@@ -6,7 +6,7 @@ from jaxtyping import Float
 from torch import Tensor
 from torch.linalg import norm
 
-from zonotope.zonotope import Zonotope
+from zonotope.classical.z import Zonotope
 
 
 def relu(z: Zonotope) -> Zonotope:
