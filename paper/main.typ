@@ -6,11 +6,6 @@
 
 #let Eps = $cal(E)$
 #let eps = $epsilon$
-#let phi = $phi.alt$
-#let aa = $arrow(alpha)$
-#let bb = $arrow(beta)$
-#let ei = $arrow(epsilon)$
-#let es = $arrow(phi)$
 #let nnorm(x) = $norm(size: #50%, #x)$
 #let dspace = $space space$
 #let tspace = $space space space$
@@ -79,6 +74,91 @@ $
   &= max_(Lambda in RR^nn times RR^nc) d(Lambda)
 $
 We can observe that, for any $Lambda$, $d(Lambda) <= l$ #todo("Verify"). With $Lambda = 0$, it becomes the concretisation of the classical zonotope. Thus, $d(Lambda)$ is a sound bound that can be optimised.
+
+== Operations @bird_hybrid_2022
+
+For $Z = angle.l c_z, G_z, G'_z, A_z, A'_z, b_z angle.r in RR^nn, Y = angle.l c_y, G_y, G'_y, A_y, A'_y, b_y angle.r in RR^nn, W = angle.l c_w, G_w, G'_w, A_w, A'_w, b_w angle.r in RR^M, R in RR^(M times N)$:
+
+$
+  R Z = angle.l R c_z, R G_z, R G'_z, A_z, A'_z, b_z angle.r
+$
+#let mmat(..a) = $mat(delim: "[", ..#a)$
+#let hcz(c, g, gp, a, ap, b) = $lr(angle.l #c, #g, #gp, #a, #ap, #b angle.r)$
+#let b0 = $bold(0)$
+#let b1 = $bold(1)$
+#let bI = $bold(upright(I))$
+
+Minkowski sums:
+$
+  Z plus.circle Y = hcz(c_z + c_y, mmat(G_z, G_y), mmat(G'_z, G'_y), mmat(A_z, 0; 0, A_y), mmat(A'_z, 0; 0, A'_y), mmat(b_z; b_y))
+$
+
+Intersection:
+$
+  Z inter_R Y = hcz(c_z, mmat(G_z, b0), mmat(G_y, b0), mmat(A_z, b0; b0, A_y; R G_z, -G_y), mmat(A'_z, b0; b0, A'_y; R G'_z, -G'_y), mmat(b_z; b_y; c_y - R c_z))
+$
+
+Union, $Z union Y$:
+$
+  c_u &= 1 / 2 (c_z + c_y + G'_z b1 + G'_y b1) \
+  hat(G)' &= 1 / 2 (c_z - c_y + G'_y b1 - G'_z b1) \
+  hat(A)'_z &= - 1 / 2 (b_z + A'_z b1), space
+  hat(b)_z = 1 / 2 (b_z - A'_z b1) \
+  hat(A)'_y &= 1 / 2 (b_y + A'_y b1), space
+  hat(b)_y = 1 / 2 (b_y - A'_y b1) \
+  G_u &= mmat(G_z, G_y, b0), space
+  G'_u = mmat(G'_z, G'_y, hat(G)') \
+  A_u &= mmat(
+    #grid(
+      columns: 3,
+      gutter: 7pt,
+      [$A_z$], [$b0$], [$b0$],
+      [$b0$], [$A_y$], [$b0$],
+      grid.cell(colspan: 2, [$A_3$]), [$bI$]
+    )
+  ), space
+  A'_u = mmat(
+    #grid(
+      columns: 3,
+      gutter: 7pt,
+      [$A'_z$], [$b0$], [$hat(A)'_z$],
+      [$b0$], [$A'_y$], [$hat(A)'_y$],
+      grid.cell(colspan: 3, [$A'_3$]),
+    )
+  ), space
+  b_u = mmat(hat(b)_z; hat(b)_y; b_3) \
+  A_3 &= mmat(
+    bI, b0;
+    -bI, b0;
+    b0, bI;
+    b0, -bI;
+    b0, b0;
+    b0, b0;
+    b0, b0;
+    b0, b0;
+  ), space
+  A'_3 = 1 / 2 mmat(
+    b0, b0, b1;
+    b0, b0, b1;
+    b0, b0, -b1;
+    b0, b0, -b1;
+    bI, b0, b1;
+    -bI, b0, b1;
+    b0, bI, -b1;
+    b0, -bI, -b1;
+  ), space
+  b_3 = mmat(
+    1 / 2 b1;
+    1 / 2 b1;
+    1 / 2 b1;
+    1 / 2 b1;
+    b0;
+    b1;
+    b0;
+    b1;
+  ) \
+  Z union Y &= hcz(c_u, G_u, G'_u, A_u, A'_u, b_u) subset RR^nn
+$
 
 
 = Abstract Transformers
@@ -149,17 +229,17 @@ This constitutes the additional upper limit $tc2$ on $t$. Therefore it is suffic
 
 The logarithmic transformer can be constructed by plugging $f (t) = −log(t)$ and $f'(t) =-1 / x$ into equations 12 to 14 and their results into equation 11. Equation 15 can be solved to $tc = (lower −upper ) / (ln(lower)−ln(upper))$.
 
-== Affine Abstract Transformer
+// == Affine Abstract Transformer
 
-The abstract transformer for an affine combination $z = a x_1 + b x_2 + c$ of two Multi-norm Zonotope variables $x_1 = c_1 + aa_1 dot es + bb_1 dot ei$ and $x_2 = c_2 + aa_2 dot es + bb_2 dot ei$, is:
+// The abstract transformer for an affine combination $z = a x_1 + b x_2 + c$ of two Multi-norm Zonotope variables $x_1 = c_1 + aa_1 dot es + bb_1 dot ei$ and $x_2 = c_2 + aa_2 dot es + bb_2 dot ei$, is:
 
-$
-  z &= a x_1 + b x_2 + c \
-  &= a(c_1 + aa_1 dot es + bb_1 dot ei) + b(c_2 + aa_2 dot es + bb_2 dot ei) + c \
-  &= (a c_1 + b c_2 + c) + (a aa_1 + b aa_2) dot es + (a bb_1 + b bb_2) dot ei
-$
-
-This transformer is exact, as it simply applies the affine operation directly to the Multi-norm Zonotope representation without introducing any over-approximation.
+// $
+//   z &= a x_1 + b x_2 + c \
+//   &= a(c_1 + aa_1 dot es + bb_1 dot ei) + b(c_2 + aa_2 dot es + bb_2 dot ei) + c \
+//   &= (a c_1 + b c_2 + c) + (a aa_1 + b aa_2) dot es + (a bb_1 + b bb_2) dot ei
+// $
+//
+// This transformer is exact, as it simply applies the affine operation directly to the Multi-norm Zonotope representation without introducing any over-approximation.
 
 == ReLU Abstract Transformer
 
