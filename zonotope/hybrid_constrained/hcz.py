@@ -90,6 +90,17 @@ class HCZ:
         kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
         return t.zeros(*shape, **kwargs)  # type: ignore
 
+    def ones(self, *shape, **kwargs) -> Float[Tensor, "..."]:
+        kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
+        return t.ones(*shape, **kwargs)  # type: ignore
+
+    def eye(self, *shape, **kwargs) -> Float[Tensor, "..."]:
+        kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
+        return t.eye(*shape, **kwargs)  # type: ignore
+
+    def as_tensor(self, obj: Any) -> Tensor:
+        return t.as_tensor(obj, dtype=self.dtype, device=self.device)
+
     def display_shapes(self) -> None:
         print(
             textwrap.dedent(f"""
@@ -160,13 +171,27 @@ class HCZ:
         )
 
     @classmethod
-    def from_bounds(cls, lower: Any, upper: Any) -> "HCZ":
-        center = (lower + upper) / 2
-        radius = (upper - lower) / 2
-        return cls.from_values(
-            center=center,
-            continuous_generators=radius.unsqueeze(-1),
-        )
+    def from_bounds(
+        cls,
+        lower: Any,
+        upper: Any,
+        dtype: t.dtype = t.float32,
+        device: Optional[t.device] = None,
+    ) -> "HCZ":
+        if device is None:
+            device = t.device("cuda")
+        lower_ = t.as_tensor(lower, dtype=dtype, device=device)
+        upper_ = t.as_tensor(upper, dtype=dtype, device=device)
+
+        center = (lower_ + upper_) / 2
+        radius = (upper_ - lower_) / 2
+
+        radius_flat = radius.reshape(-1)
+        N = radius_flat.shape[0]
+        radius_eye = t.eye(N, dtype=dtype, device=device) * radius_flat
+        radius_expanded = radius_eye.reshape(*center.shape, N)
+
+        return cls.from_values(center=center, continuous_generators=radius_expanded)
 
     def clone(
         self,
@@ -197,9 +222,12 @@ class HCZ:
         )
 
     def concretize(self, **kwargs) -> Tuple[Float[Tensor, "N"], Float[Tensor, "N"]]:
+        """
+        Returns: lower, upper
+        """
         if self.Nc == 0:
-            return self.dual(self.zeros(self.N, self.Nc), "upper"), -self.dual(
-                self.zeros(self.N, self.Nc)
+            return self.dual(self.zeros(self.N, self.Nc), "lower"), -self.dual(
+                self.zeros(self.N, self.Nc), "upper"
             )
         lambda_lower = self.optimize_lambda("lower", **kwargs)
         lambda_upper = self.optimize_lambda("upper", **kwargs)
@@ -244,6 +272,7 @@ class HCZ:
         bound: Literal["upper", "lower"] = "lower",
         num_iterations: int = 1000,
         learning_rate: float = 1e-3,
+        verbose: bool = False,
     ) -> Float[Tensor, "N Nc"]:
         lmda = (
             t.randn(
@@ -290,7 +319,7 @@ class HCZ:
                     best_value = current_value
                     best_lmda = lmda.clone().detach()
 
-            if iteration % 100 == 0:
+            if iteration % 100 == 0 and verbose:
                 print(f"Iteration {iteration}, Concretize Sum: {-loss.item()}")
 
         return best_lmda
@@ -379,6 +408,107 @@ class HCZ:
             constraints_biases=new_b,
         )
 
+    def union(self, other: "HCZ") -> "HCZ":
+        i_new = 2 * self.Ng + 2 * self.Nb + 2 * other.Ng + 2 * other.Nb
+        new_c = 1 / 2 * (self.W_C + other.W_C + self.W_Gb.sum(-1) + other.W_Gb.sum(-1))
+        gb_hat = (
+            1
+            / 2
+            * (self.W_C - other.W_C + self.W_Gb.sum(-1) - other.W_Gb.sum(-1)).unsqueeze(
+                -1
+            )
+        )
+        abz_hat = -1 / 2 * (self.W_B + self.W_Ab.sum(-1)).unsqueeze(-1)
+        bz_hat = 1 / 2 * (self.W_B - self.W_Ab.sum(-1))
+        aby_hat = 1 / 2 * (other.W_B + other.W_Ab.sum(-1)).unsqueeze(-1)
+        by_hat = 1 / 2 * (other.W_B - other.W_Ab.sum(-1))
+        new_gb = t.cat([self.W_Gb, other.W_Gb, gb_hat], dim=-1)
+        new_gc = t.cat([self.W_Gc, other.W_Gc, self.zeros(*self.shape, i_new)], dim=-1)
+        new_ac_top = t.cat([self.W_Ac, self.zeros(self.Nc, other.Ng + i_new)], dim=-1)
+        new_ac_middle = t.cat(
+            [self.zeros(other.Nc, self.Ng), other.W_Ac, self.zeros(other.Nc, i_new)],
+            dim=-1,
+        )
+        new_ac_bottom_left = t.cat(
+            [
+                self.eye(self.Ng),
+                -self.eye(self.Ng),
+                self.zeros(i_new - 2 * self.Ng, self.Ng),
+            ],
+            dim=0,
+        )
+        new_ac_bottom_center = t.cat(
+            [
+                self.zeros(2 * self.Ng, other.Ng),
+                self.eye(other.Ng),
+                -self.eye(other.Ng),
+                self.zeros(2 * self.Nb + 2 * other.Nb),
+            ],
+            dim=0,
+        )
+        new_ac_bottom = t.cat(
+            [new_ac_bottom_left, new_ac_bottom_center, self.eye(i_new)], dim=-1
+        )
+        new_ac = t.cat([new_ac_top, new_ac_middle, new_ac_bottom], dim=0)
+        new_ab_top = t.cat([self.W_Ab, self.zeros(self.Nc, other.Nb), abz_hat], dim=-1)
+        new_ab_middle = t.cat(
+            [self.zeros(other.Nc, self.Nb), other.W_Ab, aby_hat], dim=-1
+        )
+        new_ab_bottom_left = t.cat(
+            [
+                self.zeros(2 * self.Ng + 2 * other.Ng, self.Nb),
+                self.eye(self.Nb),
+                -self.eye(self.Nb),
+                self.zeros(2 * other.Nb, self.Nb),
+            ],
+            dim=0,
+        )
+        new_ab_bottom_center = t.cat(
+            [
+                self.zeros(2 * self.Ng + 2 * other.Ng + 2 * self.Nb, other.Nb),
+                self.eye(other.Nb),
+                -self.eye(other.Nb),
+            ],
+            dim=0,
+        )
+        new_ab_bottom_right = t.cat(
+            [
+                self.ones(2 * self.Ng, 1),
+                -self.ones(2 * other.Ng, 1),
+                self.ones(2 * self.Nb, 1),
+                -self.ones(2 * other.Nb, 1),
+            ],
+            dim=0,
+        )
+        new_ab_bottom = (
+            1
+            / 2
+            * t.cat(
+                [new_ab_bottom_left, new_ab_bottom_center, new_ab_bottom_right], dim=-1
+            )
+        )
+        new_ab = t.cat([new_ab_top, new_ab_middle, new_ab_bottom], dim=0)
+        new_b_bottom = t.cat(
+            [
+                1 / 2 * self.ones(2 * self.Ng + 2 * other.Ng, 1),
+                self.zeros(self.Nb, 1),
+                self.ones(self.Nb, 1),
+                self.zeros(other.Nb, 1),
+                self.ones(other.Nb, 1),
+            ],
+            dim=0,
+        )
+        new_b = t.cat([bz_hat, by_hat, new_b_bottom], dim=0)
+
+        return self.clone(
+            center=new_c,
+            continuous_generators=new_gc,
+            binary_generators=new_gb,
+            continuous_constraints=new_ac,
+            binary_constraints=new_ab,
+            constraints_biases=new_b,
+        )
+
     def rearrange(self, pattern: str, **kwargs) -> "HCZ":
         """Einops rearrange"""
         error_pattern = get_einops_pattern_for_error_terms(pattern)
@@ -431,6 +561,28 @@ class HCZ:
         self.W_Ac.contiguous()
         self.W_Ab.contiguous()
         self.W_B.contiguous()
+
+    def __getitem__(self, key) -> "HCZ":
+        if isinstance(key, tuple):
+            error_key = (*key, slice(None, None, None))
+        else:
+            error_key = (key, slice(None, None, None))
+
+        return self.clone(
+            center=self.W_C[key],
+            continuous_generators=self.W_Gc[error_key],
+            binary_generators=self.W_Gb[error_key],
+        )
+
+    def __setitem__(self, key, value: Tensor | float | int) -> None:
+        if isinstance(key, tuple):
+            error_key = (*key, slice(None, None, None))
+        else:
+            error_key = (key, slice(None, None, None))
+
+        self.W_C[key] = value
+        self.W_Gb[error_key] = value
+        self.W_Gc[error_key] = value
 
     def __len__(self) -> int:
         return self.N
