@@ -1,6 +1,6 @@
 import textwrap
 from functools import partial
-from typing import Any, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Literal, Optional, Tuple, Union
 
 import einops
 import torch as t
@@ -208,7 +208,7 @@ class HCZ:
             if continuous_generators is None
             else continuous_generators,
             binary_generators=self.W_Gb
-            if binary_generators is not None
+            if binary_generators is None
             else binary_generators,
             continuous_constraints=self.W_Ac
             if continuous_constraints is None
@@ -408,6 +408,45 @@ class HCZ:
             constraints_biases=new_b,
         )
 
+    def general_intersect(
+        self, other: "HCZ", r: Float[Tensor, "other_n self_n"]
+    ) -> "HCZ":
+        new_gc = t.cat([self.W_Gc, self.zeros(*self.shape, other.Ng)], dim=-1)
+        new_gb = t.cat([self.W_Gb, self.zeros(*self.shape, other.Nb)], dim=-1)
+
+        new_ac_top = t.cat([self.W_Ac, self.zeros(self.Nc, other.Ng)], dim=-1)
+        new_ac_mid = t.cat([self.zeros(other.Nc, self.Ng), other.W_Ac], dim=-1)
+        new_ac_bottom = t.cat(
+            [einops.einsum(r, self.W_Gc, "N1 N2, N2 ... -> N1 ..."), -other.W_Gc],
+            dim=-1,
+        )
+        new_ac = t.cat([new_ac_top, new_ac_mid, new_ac_bottom], dim=0)
+
+        new_ab_top = t.cat([self.W_Ab, self.zeros(self.Nc, other.Nb)], dim=-1)
+        new_ab_mid = t.cat([self.zeros(other.Nc, self.Nb), other.W_Ab], dim=-1)
+        new_ab_bottom = t.cat(
+            [einops.einsum(r, self.W_Gb, "N1 N2, N2 ... -> N1 ..."), -other.W_Gb],
+            dim=-1,
+        )
+        new_ab = t.cat([new_ab_top, new_ab_mid, new_ab_bottom], dim=0)
+
+        new_b = t.cat(
+            [
+                self.W_B,
+                other.W_B,
+                other.W_C - einops.einsum(r, self.W_C, "N1 N2, N2 -> N1"),
+            ]
+        )
+
+        return self.clone(
+            center=self.W_C,
+            continuous_generators=new_gc,
+            binary_generators=new_gb,
+            continuous_constraints=new_ac,
+            binary_constraints=new_ab,
+            constraints_biases=new_b,
+        )
+
     def union(self, other: "HCZ") -> "HCZ":
         i_new = 2 * self.Ng + 2 * self.Nb + 2 * other.Ng + 2 * other.Nb
         new_c = 1 / 2 * (self.W_C + other.W_C + self.W_Gb.sum(-1) + other.W_Gb.sum(-1))
@@ -490,11 +529,11 @@ class HCZ:
         new_ab = t.cat([new_ab_top, new_ab_middle, new_ab_bottom], dim=0)
         new_b_bottom = t.cat(
             [
-                1 / 2 * self.ones(2 * self.Ng + 2 * other.Ng, 1),
-                self.zeros(self.Nb, 1),
-                self.ones(self.Nb, 1),
-                self.zeros(other.Nb, 1),
-                self.ones(other.Nb, 1),
+                1 / 2 * self.ones(2 * self.Ng + 2 * other.Ng),
+                self.zeros(self.Nb),
+                self.ones(self.Nb),
+                self.zeros(other.Nb),
+                self.ones(other.Nb),
             ],
             dim=0,
         )
@@ -508,6 +547,21 @@ class HCZ:
             binary_constraints=new_ab,
             constraints_biases=new_b,
         )
+
+    def split(
+        self, center: Optional[Float[Tensor, "..."]] = None, **kwargs
+    ) -> Tuple["HCZ", "HCZ"]:
+        lower, upper = self.concretize(**kwargs)
+        if center is None:
+            center = (upper + lower) / 2
+        h_neg = HCZ.from_bounds(lower, center)
+        h_pos = HCZ.from_bounds(center, upper)
+        return self.intersect(h_neg), self.intersect(h_pos)
+
+    def split_operation(self, operation: Callable[["HCZ"], "HCZ"], **kwargs) -> "HCZ":
+        z_neg, z_pos = self.split(**kwargs)
+        r_neg, r_pos = operation(z_neg), operation(z_pos)
+        return r_neg.union(r_pos)
 
     def rearrange(self, pattern: str, **kwargs) -> "HCZ":
         """Einops rearrange"""

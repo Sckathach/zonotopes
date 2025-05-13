@@ -100,13 +100,14 @@ $
 
 Union, $Z union Y$:
 $
+  I_"new" &= 2 I_z + 2 I_y + 2 I'_z + 2 I'_y \
   c_u &= 1 / 2 (c_z + c_y + G'_z b1 + G'_y b1) \
   hat(G)' &= 1 / 2 (c_z - c_y + G'_y b1 - G'_z b1) \
   hat(A)'_z &= - 1 / 2 (b_z + A'_z b1), space
   hat(b)_z = 1 / 2 (b_z - A'_z b1) \
   hat(A)'_y &= 1 / 2 (b_y + A'_y b1), space
   hat(b)_y = 1 / 2 (b_y - A'_y b1) \
-  G_u &= mmat(G_z, G_y, b0), space
+  G_u &= mmat(G_z, G_y, b0_I_"new"), space
   G'_u = mmat(G'_z, G'_y, hat(G)') \
   A_u &= mmat(
     #grid(
@@ -114,7 +115,7 @@ $
       gutter: 7pt,
       [$A_z$], [$b0$], [$b0$],
       [$b0$], [$A_y$], [$b0$],
-      grid.cell(colspan: 2, [$A_3$]), [$bI$]
+      grid.cell(colspan: 2, [$A_3$]), [$bI_I_"new"$]
     )
   ), space
   A'_u = mmat(
