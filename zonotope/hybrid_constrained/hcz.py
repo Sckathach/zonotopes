@@ -193,6 +193,10 @@ class HCZ:
 
         return cls.from_values(center=center, continuous_generators=radius_expanded)
 
+    @classmethod
+    def empty(cls, **kwargs) -> "HCZ":
+        return cls.from_values(center=[], **kwargs)
+
     def clone(
         self,
         center: Optional[Float[Tensor, "..."]] = None,
@@ -326,6 +330,11 @@ class HCZ:
 
     def add(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
         if isinstance(other, HCZ):
+            if self.N == 0:
+                return other
+            if other.N == 0:
+                return self
+
             new_ac_top = t.cat([self.W_Ac, self.zeros(self.Nc, other.Ng)])
             new_ac_bottom = t.cat(
                 [
@@ -384,6 +393,9 @@ class HCZ:
         return self * (1 / other)
 
     def intersect(self, other: "HCZ") -> "HCZ":
+        if self.N == 0 or other.N == 0:
+            return HCZ.empty()
+
         new_gc = t.cat([self.W_Gc, self.zeros(*self.shape, other.Ng)], dim=-1)
         new_gb = t.cat([self.W_Gb, self.zeros(*self.shape, other.Nb)], dim=-1)
 
@@ -411,6 +423,9 @@ class HCZ:
     def general_intersect(
         self, other: "HCZ", r: Float[Tensor, "other_n self_n"]
     ) -> "HCZ":
+        if self.N == 0 or other.N == 0:
+            return HCZ.empty()
+
         new_gc = t.cat([self.W_Gc, self.zeros(*self.shape, other.Ng)], dim=-1)
         new_gb = t.cat([self.W_Gb, self.zeros(*self.shape, other.Nb)], dim=-1)
 
@@ -448,6 +463,11 @@ class HCZ:
         )
 
     def union(self, other: "HCZ") -> "HCZ":
+        if self.N == 0:
+            return other
+        if other.N == 0:
+            return self
+
         i_new = 2 * self.Ng + 2 * self.Nb + 2 * other.Ng + 2 * other.Nb
         new_c = 1 / 2 * (self.W_C + other.W_C + self.W_Gb.sum(-1) + other.W_Gb.sum(-1))
         gb_hat = (
@@ -538,6 +558,40 @@ class HCZ:
             dim=0,
         )
         new_b = t.cat([bz_hat, by_hat, new_b_bottom], dim=0)
+
+        return self.clone(
+            center=new_c,
+            continuous_generators=new_gc,
+            binary_generators=new_gb,
+            continuous_constraints=new_ac,
+            binary_constraints=new_ab,
+            constraints_biases=new_b,
+        )
+
+    def cartesian_product(self, other: "HCZ") -> "HCZ":
+        if self.N == 0:
+            return other
+        if other.N == 0:
+            return self
+
+        new_gc_top = t.cat([self.W_Gc, self.zeros(*self.shape, other.Ng)], dim=-1)
+        new_gc_bottom = t.cat([self.zeros(*other.shape, self.Ng), other.W_Gc], dim=-1)
+        new_gc = t.cat([new_gc_top, new_gc_bottom], dim=0)
+
+        new_gb_top = t.cat([self.W_Gb, self.zeros(*self.shape, other.Nb)], dim=-1)
+        new_gb_bottom = t.cat([self.zeros(*other.shape, self.Nb), other.W_Gb], dim=-1)
+        new_gb = t.cat([new_gb_top, new_gb_bottom], dim=0)
+
+        new_ac_top = t.cat([self.W_Ac, self.zeros(self.Nc, other.Ng)], dim=-1)
+        new_ac_bottom = t.cat([self.zeros(other.Nc, self.Ng), other.W_Ac], dim=-1)
+        new_ac = t.cat([new_ac_top, new_ac_bottom], dim=0)
+
+        new_ab_top = t.cat([self.W_Ab, self.zeros(self.Nc, other.Nb)], dim=-1)
+        new_ab_bottom = t.cat([self.zeros(other.Nc, self.Nb), other.W_Ab], dim=-1)
+        new_ab = t.cat([new_ab_top, new_ab_bottom], dim=0)
+
+        new_c = t.cat([self.W_C, other.W_C], dim=0)
+        new_b = t.cat([self.W_B, other.W_B], dim=0)
 
         return self.clone(
             center=new_c,

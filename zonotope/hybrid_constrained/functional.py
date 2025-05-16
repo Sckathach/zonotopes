@@ -1,54 +1,84 @@
-import torch as t
+from typing import Callable
 
+import torch as t
+from jaxtyping import Float
+from torch import Tensor
+
+from zonotope.classical.z import Zonotope
 from zonotope.hybrid_constrained.hcz import HCZ
 
 
-def relu(z: HCZ, **kwargs) -> HCZ:
-    r = z.clone()
-    _, upper = z.concretize(**kwargs)
-    mask_zeros = upper <= 0
-    r[mask_zeros] = 0
-    y = HCZ.from_bounds(t.zeros_like(z.W_C), t.max(upper, t.zeros_like(upper)))
-    return r.intersect(y)
+def get_permutation_matrix(h: HCZ) -> Float[Tensor, "N N"]:
+    r = h.zeros(h.N, h.N)
+    for i in range(h.N // 2):
+        r[2 * i, i] = 1
+        r[-1 - 2 * i, -i - 1] = 1
+    return r
 
 
-def reciprocal(z: HCZ, epsilon: float = 1e-6, eps_hat: float = 1e-6, **kwargs) -> HCZ:
-    result = z.clone()
-    lower, upper = z.concretize(**kwargs)
+def get_abstract_transformer_from_classical_zonotope(
+    lower: Tensor | float,
+    upper: Tensor | float,
+    classical_zonotope_abstract_transformer: Callable[[Zonotope], Zonotope],
+) -> HCZ:
+    z = Zonotope.from_bounds(lower=t.as_tensor([lower]), upper=t.as_tensor([upper]))
+    r = classical_zonotope_abstract_transformer(z)
 
-    non_equal = (upper - lower).abs() > epsilon
-
-    # Calculate t_crit
-    t_crit = t.sqrt(upper * lower)
-
-    # Calculate t_crit,2
-    t_crit2 = 0.5 * upper + eps_hat
-
-    # Calculate t_opt
-    t_opt = t.minimum(t_crit, t_crit2)
-
-    # Calculate coefficients
-    lambda_coeff = -1 / (t_opt**2)
-    mu = 0.5 * (1 / t_opt - lambda_coeff * t_opt + 1 / lower - lambda_coeff * lower)
-    beta_new = 0.5 * (
-        lambda_coeff * t_opt - 1 / t_opt + 1 / lower - lambda_coeff * lower
+    return HCZ.from_values(
+        [z.W_C[0].item(), r.W_C[0].item()],
+        [[z.W_Ei[0, 0].item(), 0], r.W_Ei.tolist()[0]],
     )
 
-    lambda_coeff[~non_equal] = 1
-    mu[~non_equal] = 0
-    beta_new[~non_equal] = 0
 
-    # Apply the transformation
-    result.W_C = lambda_coeff * result.W_C + mu
-    if result.Ng > 0:
-        result.W_Gc = lambda_coeff.unsqueeze(-1) * result.W_Gc
-    if result.Nb > 0:
-        result.W_Gb = lambda_coeff.unsqueeze(-1) * result.W_Gb
+def abstract_relu(alpha: Tensor | float, beta: Tensor | float) -> HCZ:
+    h1 = HCZ.from_values(
+        center=[-alpha / 2, 0], continuous_generators=[[alpha / 2], [0]]
+    )
+    h2 = HCZ.from_values(
+        center=[beta / 2, beta / 2], continuous_generators=[[beta / 2], [beta / 2]]
+    )
+    return h1.union(h2)
 
-    # Add new error term
-    result.W_Gc = t.cat([result.W_Gc, beta_new.unsqueeze(-1)], dim=-1)
 
-    result.W_C[~non_equal] = 1 / z.W_C[~non_equal]
-    result.W_Ac = t.cat([result.W_Ac, result.zeros(result.Nc, 1)], dim=-1)
+def abstract_from_classical(
+    alpha: Tensor | float,
+    beta: Tensor | float,
+    classical_zonotope_abstract_transformer: Callable[[Zonotope], Zonotope],
+) -> HCZ:
+    c = (-alpha + beta) / 2
+    h1 = get_abstract_transformer_from_classical_zonotope(
+        -alpha, c, classical_zonotope_abstract_transformer
+    )
+    h2 = get_abstract_transformer_from_classical_zonotope(
+        c, beta, classical_zonotope_abstract_transformer
+    )
+    return h1.union(h2)
 
+
+def apply_abstract_transformer(
+    z_in: HCZ,
+    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZ],
+    **kwargs,
+) -> HCZ:
+    lower, upper = z_in.concretize(**kwargs)
+    z_abs = HCZ.empty()
+
+    for i in range(z_in.N):
+        alpha, beta = -lower[i], upper[i]
+        z_abs = z_abs.cartesian_product(abs_transformer(alpha, beta))
+
+    perm = get_permutation_matrix(z_abs)
+    r_in = t.cat([z_in.eye(z_in.N), z_in.zeros(z_in.N, z_in.N)], dim=-1)
+    perm_z_abs = z_abs.einsum(perm, "Na, Nb Na -> Nb")
+    intermediate_result = perm_z_abs.general_intersect(z_in, r_in)
+    r_out = t.cat([z_in.zeros(z_in.N, z_in.N), z_in.eye(z_in.N)], dim=-1)
+    result = intermediate_result.einsum(r_out, "Na, Nb Na -> Nb")
     return result
+
+
+def dot_product(h1: HCZ, h2: HCZ, **kwargs) -> HCZ:
+    a, b = h1.clone(), h2.clone()
+
+    
+
+    return a

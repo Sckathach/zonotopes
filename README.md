@@ -101,3 +101,11 @@ firefox docs/build/html/index.html
 ```
 
 A live version can be found here: <https://sckathach.github.io/zonotopes/>, but styling is currently broken (yes I'm bad). 
+
+
+## Papers
+- <https://engineering.purdue.edu/JainResearchLab/pdf/PhD_Trevor_Bird_2022.pdf>
+- <https://arxiv.org/pdf/2210.03244> <https://arxiv.org/pdf/2303.10513>
+- OVERT <https://arxiv.org/pdf/2108.01220>
+
+- ADVANCING NEURAL NETWORK VERIFICATION THROUGH HIERARCHICAL SAFETY ABSTRACT INTERPRETATION: <https://arxiv.org/pdf/2505.05235> pas safe/unsafe mais degrés de safe &rarr; pour trouver adv inputs

@@ -208,6 +208,7 @@ def reciprocal(
 
     # Calculate t_opt
     t_opt = t.minimum(t_crit, t_crit2)
+    t_opt = t_crit
 
     # Calculate coefficients
     lambda_coeff = -1 / (t_opt**2)
