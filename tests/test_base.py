@@ -8,7 +8,7 @@ import pytest
 import torch as t
 from einops import einsum
 
-from zonotope.zonotope import Zonotope, dual_norm
+from zonotope.classical.z import Zonotope, dual_norm
 
 
 @pytest.fixture

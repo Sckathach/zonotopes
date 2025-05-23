@@ -57,13 +57,17 @@ $
 
 where $c_k, gamma_(i k) in RR$ and $eps_i in [-1, 1]$. The value $x_k$ can deviate from its center coefficient $c_k$ through a series of noise symbols $eps_i$ scaled by the coefficients $gamma_(i k)$. The set of noise symbols $Eps$ is shared among different variables, thus encoding dependencies between $N$ values abstracted by the zonotope.
 
+This definition can be extended to multi-dimensional variables with $c in RR^dots$ and $G in RR^(dots times ng)$.
+
 = Hybrid constrained zonotope
 The hybrid constrained zonotope is defined as:
 $
   z = c + G Eps + G'Eps', tspace "s.t." space cases(A Eps + A' Eps' = b, Eps in [-1, 1]^ng, Eps' in {-1, 1}^nb)
 $
 
-With $nn$ the number of variables, $ng$ the number of continuous noise terms, $nb$ the number of binary noise terms, $nc$ the number of constraints, $z, c in RR^n$, $G in RR^n times RR^ng$, $G' in RR^n times RR^nb$, $A in RR^nc times RR^ng$, $A' in RR^nc times RR^nb$, $b in RR^nc$.
+With $nn$ the number of variables, $ng$ the number of continuous noise terms, $nb$ the number of binary noise terms, $nc$ the number of constraints, $z, c in RR^nn$, $G in RR^nn times RR^ng$, $G' in RR^nn times RR^nb$, $A in RR^nc times RR^ng$, $A' in RR^nc times RR^nb$, $b in RR^nc$.
+
+This definition can be extended to multi-dimensional variables with $c in RR^dots, G in RR^(dots times ng)$, and $G' in RR^(dots times nb)$.
 
 == Concretisation
 The lower bound is defined as:
@@ -77,24 +81,39 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   $
     l = max_(Lambda in RR^nn times RR^nc) c + Lambda b - norm(G - Lambda A)_1 - norm(G' - Lambda A')_1 \
     u = max_(Lambda in RR^nn times RR^nc) -c + Lambda b - norm(G + Lambda A)_1 - norm(G' + Lambda A')_1 \
-  $
+  $ <th:concretisation>
 ]
 #proof[
   #todo("Verify") Using Lagrange multipliers, the previous minimisation problem can be rewritten:
   $
     l &= min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) max_(lambda in RR^nc) c + G Eps + G' Eps' - sum_j^nc lambda_j (A_j Eps + A'_j Eps' - b_j) \
-    &= min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) max_(Lambda in RR^nn times RR^nc) c + Lambda b - (G - Lambda A) Eps - (G' - Lambda A') Eps'
+    &= min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) max_(Lambda in RR^nn times RR^nc) c + Lambda b + (G - Lambda A) Eps + (G' - Lambda A') Eps'
   $
 
   Since the objective is linear and the optimisation variables are compact ($[-1, 1]^ng times {-1, 1}^nb$), we can reverse the order of the min and the max and obtain the same bound:
 
   $
-    l &= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + Lambda b - (G - Lambda A) Eps - (G' - Lambda A') Eps' \
+    l &= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + Lambda b + (G - Lambda A) Eps + (G' - Lambda A') Eps' \
     &= max_(Lambda in RR^nn times RR^nc) c + Lambda b - norm(G - Lambda A)_1 - norm(G' - Lambda A')_1 \
     &= max_(Lambda in RR^nn times RR^nc) d(Lambda)
   $
 
   We can observe that, for any $Lambda$, $d(Lambda) <= l$. With $Lambda = 0$, it becomes the concretisation of the classical zonotope. Thus, $d(Lambda)$ is a sound bound that can be optimised.
+]
+
+#theorem[
+  Given the lower bound $l$ and upper bound $u$ computed by optimisation in $N$ iterations with @th:concretisation:
+  $
+    exists M in NN, "if" N >= M, z != emptyset <=> l <= u
+  $
+]
+#proof[
+  #todo("Verify (IMPORTANT)")
+  $
+    l &= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + G Eps + G' Eps' - Lambda (A Eps + A' Eps' - b) \
+    &= max_(Lambda in RR^nn times RR^nc) alpha - Lambda beta
+  $
+  With $alpha in RR^nn, beta in RR^nc$. If the HCZ is empty, there is no $Eps in [-1, 1]^ng, Eps' in {-1, 1}^nb$ such that $A Eps + A' Eps' - b$, thus $abs(beta) > 0$, and $l = +oo$. Similarly, an empty set gives $u = -oo$. If the optimisation procedure is implemented with recall, ie at step $i$, $l_i >= l_(i-1)$, and given that the optimisation cannot plateau (because convex?), ie $l_i > l_(i-1)$, then there exists $M$ such that $forall N >= M, l_N > u_N$.
 ]
 
 == Operations
@@ -198,14 +217,8 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   $
     c &= c_1^top c_2, dspace G = mmat(c_2^top G_1, c_1^top G_2, hat(G)), dspace G' = mmat(c_2^top G'_1, c_1^top G'_2) \
     A &= mmat(A_1, b0, b0; b0, A_2, b0; b0, b0, hat(A)), A' = mmat(A'_1, b0; b0, A'_2; b0, b0), b = mmat(b_1; b_2; hat(b)) \
-    hat(G) &= mmat(l, 0, u, 0), hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), hat(b) = mmat(-1; -1)
-  $
-  $l, u$ can be computed by optimisation; $l = max(max_Lambda d^l_1 (Lambda), max_Lambda d^l_2 (Lambda))$ with:
-  $
-    d^l_1 (Lambda) &= Lambda b_1 - norm(abs(G_1^top G_2) + abs(G_1^top G'_2) + Lambda A_1) - norm(abs(G'_1^top G_2) + abs(G'_1^top G'_2) + Lambda A'_1) \
-  $
-  $
-    d^l_2 (Lambda) &= Lambda b_2 - norm(abs(G_1^top G_2) + abs(G'_1^top G_2) + Lambda A_2) - norm(abs(G_1^top G'_2) + abs(G'_1^top G'_2) + Lambda A'_2) \
+    hat(G) &= mmat(hat(l), 0, hat(u), 0), hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), hat(b) = mmat(-1; 1) \
+    hat(l) &= (l_1 - c_1)^top (l_2 - c_2), hat(u) = (u_1 - c_1)^top (u_2 - c_2)
   $
 ]
 #proof[
@@ -219,49 +232,40 @@ This is a minimisation problem that can be solved with a MILP, which would make 
 
   Under the conditions:
   $
-    (C) &cases(
+    (C_(1,2)) cases(
       A_1 Eps_1 + A'_1 Eps'_1 = b_1,
       A_2 Eps_2 + A'_2 Eps'_2 = b_2
-    ), dspace
-    (C_oo) &cases(
+    ), space
+    (C_(oo,1)) cases(
       Eps_1 in [-1, 1]^(ng_1),
-      Eps_2 in [-1, 1]^(ng_2),
       Eps'_1 in {-1, 1}^(nb_1),
+    ), space
+    (C_(oo,2)) cases(
+      Eps_2 in [-1, 1]^(ng_2),
       Eps'_2 in {-1, 1}^(nb_2)
     )
   $
 
   By defining $Eps$ as $mmat(Eps_1; Eps_2)$, and $Eps'$ as $mmat(Eps'_1; Eps'_2)$ in @eq:dot-product-new-generators, the new generators can be defined as: $mmat(c_2^top G_1, c_1^top G_2), mmat(c_2^top G'_1, c_1^top G'_2)$, and the new constraints as: $mmat(A_1, b0; b0, A_2), mmat(A'_1, b0; b0, A'_2)$, which will form a valid HCZ with the same constraints.
 
-  To take into account the last term (@eq:dot-product-order-two), it is possible to bound it into $[l, u]$, and then create new continuous noise terms for $Z_1 dot Z_2$. Similar as before, the lower bound can be found by optimisation:
+  To take into account the last term (@eq:dot-product-order-two), it is possible to bound it into $[l, u]$, and then create new continuous noise terms for $Z_1 dot Z_2$.
   $
-    l &= min_C min_C_oo Eps_1^top G_1^top G_2 Eps_2 + Eps_1^top G_1^top G'_2 Eps'_2 + Eps'_1^top G'_1^top G_2 Eps_2 + Eps'_1^top G'_1^top G'_2 Eps'_2 \
-    &= min_C min_C_oo (Eps_1^top G_1^top G_2 + Eps'_1^top G'_1^top G_2) Eps_2 + (Eps_1^top G_1^top G'_2 + Eps'_1^top G'_1^top G'_2) Eps'_2 #<eq:dot-product-remove> \
-    &>= min_C min_C_oo - (abs(G_1^top G_2) + abs(G'_1^top G_2)) Eps_2 - (abs(G_1^top G'_2) + abs(G'_1^top G'_2)) Eps'_2 \
-    &>= max_Lambda d_2 (Lambda)
+    hat(l) &= min_C_(1,2) min_C_(oo,1,2) Eps_1^top G_1^top G_2 Eps_2 + Eps_1^top G_1^top G'_2 Eps'_2 + Eps'_1^top G'_1^top G_2 Eps_2 + Eps'_1^top G'_1^top G'_2 Eps'_2 \
+    &= min_C_(1,2) min_C_(oo,1,2) (Eps_1^top G_1^top G_2 + Eps'_1^top G'_1^top G_2) Eps_2 + (Eps_1^top G_1^top G'_2 + Eps'_1^top G'_1^top G'_2) Eps'_2 \
+    &= min_C_(1,2) min_C_(oo,1,2) (Z_1 - c_1)^top G_2 Eps_2 + (Z_1 - c_1)^top G'_2 Eps'_2 \
+    &>= min_C_2 min_C_(oo,2) (l_1 - c_1)^top (G_2 Eps_2 + G'_2 Eps'_2) \
+    &>= min_C_2 min_C_(oo,2) (l_1 - c_1)^top (Z_2 - c_2) \
+    &>= (l_1 - c_1)^top (l_2 - c_2) \
   $
-
-  With:
-  $
-    d_2 (Lambda) = Lambda b_2 - norm(abs(G_1^top G_2) + abs(G'_1^top G_2) + Lambda A_2) - norm(abs(G_1^top G'_2) + abs(G'_1^top G'_2) + Lambda A'_2)
-  $
-
-  Similarly, by choosing to remove $Eps_2$ and $Eps'_2$ instead in @eq:dot-product-remove, we also have $l >= max_Lambda d_1 (Lambda)$ with:
-  $
-    d_1 (Lambda) = Lambda b_1 - norm(abs(G_1^top G_2) + abs(G_1^top G'_2) + Lambda A_1) - norm(abs(G'_1^top G_2) + abs(G'_1^top G'_2) + Lambda A'_1)
-  $
-
-  Thus, a lower bound is given by $hat(l) = max(max_Lambda d_1 (Lambda), max_Lambda d_2 (Lambda))$.
-
-  To add the bounded error $[hat(l), hat(u)]$ to the resulting HCZ, we can add two error terms $hat(l) eps_l$ and $hat(u) eps_u$, with the constraints: $-1 <= eps_l <= 0$ and $0 <= eps_u <= 1$. These constraints can be expressed as equalities by introducing two new error terms $tilde(eps_l), tilde(eps_u)$: $-1 <= eps_l <= 0 and 0 <= eps_u <= 1 equiv eps_l + tilde(eps_l) = -1 and eps_u + tilde(eps_u) = 1 and eps_l, tilde(eps_l), eps_u, tilde(eps_u) in [-1, 1]$, as $eps_l + tilde(eps_l) = -1 and eps_l,tilde(eps_l) in [-1, 1] equiv eps_l in [-2, 0] and eps_l in [-1, 1] equiv eps_l in [-1, 0]$.
+  Similarly: $hat(u) <= (u_1 - c_1)^top (u_2 - c_2)$. To add the bounded error $[hat(l), hat(u)]$ to the resulting HCZ, we can add two error terms $hat(l) eps_l$ and $hat(u) eps_u$, with the constraints: $-1 <= eps_l <= 0$ and $0 <= eps_u <= 1$. These constraints can be expressed as equalities by introducing two new error terms $tilde(eps)_l, tilde(eps)_u$: $-1 <= eps_l <= 0 and 0 <= eps_u <= 1 equiv eps_l + tilde(eps)_l = -1 and eps_u + tilde(eps)_u = 1 and eps_l, tilde(eps)_l, eps_u, tilde(eps)_u in [-1, 1]$, as $eps_l + tilde(eps)_l = -1 and eps_l,tilde(eps)_l in [-1, 1] equiv eps_l in [-2, 0] and eps_l in [-1, 1] equiv eps_l in [-1, 0]$.
 
   The corresponding generators and constraints matrices are then:
   $
-    hat(G) &= mmat(hat(l), 0, hat(u), 0), hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), hat(b) = mmat(-1; -1)
+    hat(G) &= mmat(hat(l), 0, hat(u), 0), hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), hat(b) = mmat(-1; 1)
   $
 ]
 #theorem[
-  *(Dot product 2nd version)* (The idea is to make more use of the constraints to hopefully get better precision).
+  *(Dot product 2nd version)*
   Let $Z_1 = hcz(c_1, G_1, G'_1, A_1, A'_1, b_1), Z_2 = hcz(c_2, G_2, G'_2, A_2, A'_2, b_2) in RR^nn$, then, the dot product can be computed as $Z_1 dot Z_2 = hcz(c, G, G', A, A', b)$ with:
   $
     c &= c_1^top c_2, dspace G = mmat(c_2^top G_1, abs(alpha_1)^top G_2), dspace G' = mmat(c_2^top G'_1, abs(alpha_1)^top G'_2) \
@@ -286,12 +290,12 @@ This is a minimisation problem that can be solved with a MILP, which would make 
 ]
 
 #theorem[
-  *(Dot product 3rd version)* (The idea is to make _even_ more use of the constraints to hopefully get better precision).
+  *(Dot product 3rd version)*
   Let $Z_1 = hcz(c_1, G_1, G'_1, A_1, A'_1, b_1), Z_2 = hcz(c_2, G_2, G'_2, A_2, A'_2, b_2) in RR^nn$, then, the dot product can be computed as $Z_1 dot Z_2 = hcz(c, G, G', A, A', b)$ with:
   $
     c &= c_1^top c_2 + m_1^top m_2 - m_1^top c_2, dspace G = mmat(c_2^top G_1, c_2^top delta_2, m_1^top delta_2 + abs(delta_1^top delta_2)) \
     G' &= mmat(c_2^top G'_1), dspace A = mmat(A_1, 0, 0), dspace A' = A'_1, dspace b = b_1 \
-    m_1 &= (u_1 + l_1) / 2, dspace m_2 = (u_2 + l_2) / 2, dspace delta_1 = (u_1 - l_1) / 2, dspace delta_2 = (u_2 + l_2) / 2, dspace
+    m_1 &= (u_1 + l_1) / 2, dspace m_2 = (u_2 + l_2) / 2, dspace delta_1 = (u_1 - l_1) / 2, dspace delta_2 = (u_2 - l_2) / 2, dspace
   $
 ]
 #proof[

@@ -5,7 +5,7 @@ import torch as t
 from jaxtyping import Float
 from torch import Tensor
 
-from zonotope.zonotope import Zonotope
+from zonotope.classical.z import Zonotope
 
 
 def empirical_soundness(

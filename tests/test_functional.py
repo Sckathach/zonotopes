@@ -2,7 +2,7 @@ import torch as t
 from einops import einsum
 
 from tests.utils import empirical_soundness
-from zonotope.functional import (
+from zonotope.classical.functional import (
     dot_product,
     exp,
     reciprocal,
@@ -10,7 +10,7 @@ from zonotope.functional import (
     softmax,
     tanh,
 )
-from zonotope.zonotope import Zonotope
+from zonotope.classical.z import Zonotope
 
 
 def test_relu_transformer_all_positive():

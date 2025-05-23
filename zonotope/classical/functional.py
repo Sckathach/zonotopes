@@ -127,14 +127,17 @@ def exp(
         ]  # Replace -Inf that arise from the log to avg(l, u)
 
     # Calculate t_crit,2
-    t_crit2 = lower + 1 - eps_hat
+    # t_crit2 = lower + 1 - eps_hat
 
     # Calculate t_opt
-    t_opt = t.minimum(t_crit, t_crit2)
+    # t_opt = t.minimum(t_crit, t_crit2)
+    t_opt = t_crit
 
     if replace_inf and (t_opt == float("-inf")).any():
         t_opt = t.min(
-            t.min(t_crit, t_crit2), upper
+            # t.min(t_crit, t_crit2), upper
+            t_crit,
+            upper,
         )  # Idea: has to be below L + 1 (and <= U)
 
     # Calculate coefficients
@@ -204,10 +207,10 @@ def reciprocal(
     t_crit = t.sqrt(upper * lower)
 
     # Calculate t_crit,2
-    t_crit2 = 0.5 * upper + eps_hat
+    # t_crit2 = 0.5 * upper + eps_hat
 
     # Calculate t_opt
-    t_opt = t.minimum(t_crit, t_crit2)
+    # t_opt = t.minimum(t_crit, t_crit2)
     t_opt = t_crit
 
     # Calculate coefficients
