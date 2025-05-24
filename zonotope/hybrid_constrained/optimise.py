@@ -12,7 +12,7 @@ def optimize_lambda(
     device: t.device,
     dtype: t.dtype,
     num_iterations: int = 1000,
-    learning_rate: float = 1e-3,
+    lr: float = 1e-3,
     verbose: bool = False,
 ) -> Float[Tensor, " "]:
     lmda = (
@@ -24,7 +24,7 @@ def optimize_lambda(
         * 1e-4
     ).requires_grad_(True)
 
-    optimizer = t.optim.Adam([lmda], lr=learning_rate)
+    optimizer = t.optim.Adam([lmda], lr=lr)
 
     best_lmda = lmda.clone().detach()
     best_value = float("-inf")

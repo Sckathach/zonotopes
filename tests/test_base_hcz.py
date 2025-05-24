@@ -1,6 +1,6 @@
 import torch as t
 
-from zonotope.hybrid_constrained.hcz_v2 import HCZ
+from zonotope.hybrid_constrained.hcz import HCZ
 
 
 def test_base():
