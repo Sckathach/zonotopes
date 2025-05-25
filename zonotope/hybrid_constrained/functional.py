@@ -10,7 +10,7 @@ from zonotope.classical.functional import exp as classical_exp
 from zonotope.classical.functional import reciprocal as classical_reciprocal
 from zonotope.classical.functional import tanh as classical_tanh
 from zonotope.classical.z import Zonotope
-from zonotope.hybrid_constrained.hcz_v2 import HCZ
+from zonotope.hybrid_constrained.hcz import HCZ
 
 
 def get_abstract_transformer_from_classical_zonotope(

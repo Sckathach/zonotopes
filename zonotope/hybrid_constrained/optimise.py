@@ -2,6 +2,7 @@ import textwrap
 from typing import Callable
 
 import torch as t
+import tqdm
 from jaxtyping import Float
 from torch import Tensor
 
@@ -11,7 +12,7 @@ def optimize_lambda(
     dual_fn: Callable[[Float[Tensor, "... J"]], Float[Tensor, "..."]],
     device: t.device,
     dtype: t.dtype,
-    num_iterations: int = 1000,
+    n_steps: int = 1000,
     lr: float = 1e-3,
     verbose: bool = False,
 ) -> Float[Tensor, " "]:
@@ -29,7 +30,7 @@ def optimize_lambda(
     best_lmda = lmda.clone().detach()
     best_value = float("-inf")
 
-    for iteration in range(num_iterations):
+    for iteration in tqdm.tqdm(range(n_steps)):
         optimizer.zero_grad()
 
         current_bound = dual_fn(lmda)

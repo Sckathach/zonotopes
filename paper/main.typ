@@ -98,6 +98,15 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   $
   Furthermore, as the constraints are linear, (and the optimisation variables are compact $[-1, 1]^ng times {-1, 1}^nb$ $->$ needed?), we also have strong duality and $l = max_(Lambda in RR^nn times RR^nc) d(Lambda)$.
 ]
+#theorem[
+  The concretisation has a time complexity linear in the number of variables and precision: $O(nn times nc times max(ng, nb) times "n_steps")$.
+]
+#proof[
+  #todo("Verify")
+  The forward pass has a complexity of $O(nn times nc) + O(nn times nc times ng) + O(nn times nc times nb)$ for the multiplications, and $O(nn times ng) + O(nn times nb)$ for the norm, thus an overall complexity of $O(nn times nc times max(ng, nb))$. The backward pass has the same complexity with automatic differentiation (PyTorch).
+
+  The optimiser used is Adam and cost $O(nn times nc)$, with $"n_steps"$ iterations, this gives the total complexity of $O(nn times nc times max(ng, nb) times "n_steps")$.
+]
 
 #theorem[
   Given the lower bound $l$ and upper bound $u$ computed by optimisation in $N$ iterations with @th:concretisation:
@@ -115,7 +124,7 @@ This is a minimisation problem that can be solved with a MILP, which would make 
 ]
 
 == Operations
-#let mmat(..a) = $mat(delim: "[", ..#a)$
+#let mmat(..a) = $mat(align: #right, delim: "[", ..#a)$
 #let hcz(c, g, gp, a, ap, b) = $lr(angle.l #c, #g, #gp, #a, #ap, #b angle.r)$
 #let b0 = $bold(0)$
 #let b1 = $bold(1)$
