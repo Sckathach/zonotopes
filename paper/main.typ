@@ -89,16 +89,14 @@ This is a minimisation problem that can be solved with a MILP, which would make 
     l &= min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) max_(lambda in RR^nc) c + G Eps + G' Eps' - sum_j^nc lambda_j (A_j Eps + A'_j Eps' - b_j) \
     &= min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) max_(Lambda in RR^nn times RR^nc) c + Lambda b + (G - Lambda A) Eps + (G' - Lambda A') Eps'
   $
-
-  Since the objective is linear and the optimisation variables are compact ($[-1, 1]^ng times {-1, 1}^nb$), we can reverse the order of the min and the max and obtain the same bound:
+  The weak duality gives:
 
   $
-    l &= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + Lambda b + (G - Lambda A) Eps + (G' - Lambda A') Eps' \
-    &= max_(Lambda in RR^nn times RR^nc) c + Lambda b - norm(G - Lambda A)_1 - norm(G' - Lambda A')_1 \
-    &= max_(Lambda in RR^nn times RR^nc) d(Lambda)
+    l &>= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + Lambda b + (G - Lambda A) Eps + (G' - Lambda A') Eps' \
+    &>= max_(Lambda in RR^nn times RR^nc) c + Lambda b - norm(G - Lambda A)_1 - norm(G' - Lambda A')_1 \
+    &>= max_(Lambda in RR^nn times RR^nc) d(Lambda)
   $
-
-  We can observe that, for any $Lambda$, $d(Lambda) <= l$. With $Lambda = 0$, it becomes the concretisation of the classical zonotope. Thus, $d(Lambda)$ is a sound bound that can be optimised.
+  Furthermore, as the constraints are linear, (and the optimisation variables are compact $[-1, 1]^ng times {-1, 1}^nb$ $->$ needed?), we also have strong duality and $l = max_(Lambda in RR^nn times RR^nc) d(Lambda)$.
 ]
 
 #theorem[
@@ -108,10 +106,10 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   $
 ]
 #proof[
-  #todo("Verify (IMPORTANT)")
+  #todo("Verify")
   $
-    l &= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + G Eps + G' Eps' - Lambda (A Eps + A' Eps' - b) \
-    &= max_(Lambda in RR^nn times RR^nc) alpha - Lambda beta
+    l &>= max_(Lambda in RR^nn times RR^nc) min_(Eps in [-1, 1]^ng\ Eps' in {-1, 1}^nb) c + G Eps + G' Eps' - Lambda (A Eps + A' Eps' - b) \
+    &>= max_(Lambda in RR^nn times RR^nc) alpha - Lambda beta
   $
   With $alpha in RR^nn, beta in RR^nc$. If the HCZ is empty, there is no $Eps in [-1, 1]^ng, Eps' in {-1, 1}^nb$ such that $A Eps + A' Eps' - b$, thus $abs(beta) > 0$, and $l = +oo$. Similarly, an empty set gives $u = -oo$. If the optimisation procedure is implemented with recall, ie at step $i$, $l_i >= l_(i-1)$, and given that the optimisation cannot plateau (because convex?), ie $l_i > l_(i-1)$, then there exists $M$ such that $forall N >= M, l_N > u_N$.
 ]
