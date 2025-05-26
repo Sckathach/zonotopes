@@ -9,20 +9,20 @@ from torch import Tensor
 
 def optimize_lambda(
     dims: t.Size | tuple,
-    dual_fn: Callable[[Float[Tensor, "... J"]], Float[Tensor, "..."]],
+    dual_fn: Callable[[Float[Tensor, "N J"]], Float[Tensor, "N"]],
     device: t.device,
     dtype: t.dtype,
     n_steps: int = 1000,
-    lr: float = 1e-3,
+    lr: float = 1e-5,
     verbose: bool = False,
-) -> Float[Tensor, " "]:
+) -> Float[Tensor, "N J"]:
     lmda = (
         t.randn(
             dims,
             device=device,
             dtype=dtype,
         )
-        * 1e-4
+        * 1e-5
     ).requires_grad_(True)
 
     optimizer = t.optim.Adam([lmda], lr=lr)

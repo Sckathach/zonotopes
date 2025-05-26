@@ -102,6 +102,9 @@ class HCZ:
     def as_tensor(self, obj: Any) -> Tensor:
         return t.as_tensor(obj, dtype=self.dtype, device=self.device)
 
+    def as_sparse_tensor(self, obj: Any) -> Tensor:
+        return t.as_tensor(obj, dtype=self.dtype, device=self.device).to_sparse_coo()
+
     def display_shapes(self) -> None:
         print(
             textwrap.dedent(f"""
@@ -123,6 +126,10 @@ class HCZ:
             A': {self.W_Ap}
             b: {self.W_B}
         """)
+
+    def load_config_from_(self, other: "HCZ") -> None:
+        self.config = other.config
+        self.to(device=other.device, dtype=other.dtype)
 
     def check_integrity(self) -> None:
         assert not self.W_C.is_sparse
@@ -243,7 +250,6 @@ class HCZ:
             )
 
         kwargs = {"lr": self.config.lr, "n_steps": self.config.n_steps} | kwargs
-
         lambda_lower = optimize_lambda(
             (self.J, self.N),
             self.dual_lower,
@@ -258,6 +264,15 @@ class HCZ:
             dtype=self.dtype,
             **kwargs,
         )
+        lower, upper = self.dual_lower(lambda_lower), -self.dual_upper(lambda_upper)
+        lower_0, upper_0 = (
+            self.dual_lower(self.zeros(self.J, self.N)),
+            -self.dual_upper(self.zeros(self.J, self.N)),
+        )
+        mask_lower = lower_0 > lower
+        mask_upper = upper_0 < upper
+        lambda_lower[:, mask_lower] = 0
+        lambda_upper[:, mask_upper] = 0
 
         return self.dual_lower(lambda_lower), -self.dual_upper(lambda_upper)
 

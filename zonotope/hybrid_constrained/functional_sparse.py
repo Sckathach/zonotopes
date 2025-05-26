@@ -110,18 +110,60 @@ def apply_abstract_transformer(
     **kwargs,
 ) -> HCZ:
     lower, upper = z_in.concretize(**kwargs)
-    z_abs = HCZ.empty()
+    z_abs = abs_transformer(lower[0], upper[0])
 
-    for i in range(z_in.N):
-        z_abs = z_abs.cartesian_product(abs_transformer(lower[i], upper[i]))
+    for i in range(1, z_in.N):
+        z_abs = z_abs.cartesian_product(
+            abs_transformer(lower[i], upper[i]), check_emptiness=False
+        )
 
+    z_abs.load_config_from_(z_in)
     perm = get_permutation_matrix(z_abs)
     r_in = t.cat([z_in.eye(z_in.N), z_in.zeros(z_in.N, z_in.N)], dim=-1)
-    perm_z_abs = z_abs.mm(perm)
-    intermediate_result = perm_z_abs.intersect(z_in, r_in.T, **kwargs)
+    perm_z_abs = z_abs.mm(perm, check_emptiness=False)
+    intermediate_result = perm_z_abs.intersect(
+        z_in,
+        r_in.T,
+        check_emptiness_before=False,
+        check_emptiness_after=False,
+        **kwargs,
+    )
     r_out = t.cat([z_in.zeros(z_in.N, z_in.N), z_in.eye(z_in.N)], dim=-1)
-    return intermediate_result.mm(r_out.T)
+    return intermediate_result.mm(r_out.T, check_emptiness=False)
 
 
 def linear(z: HCZ, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZ:
     return z.mm(weight.T) + bias
+
+
+def dot_product(a: HCZ, b: HCZ, **kwargs) -> HCZ:
+    h1, h2 = a.clone(), b.clone()
+
+    l1, u1 = h1.concretize(**kwargs)
+    l2, u2 = h2.concretize(**kwargs)
+
+    lhat = (l1 - h1.W_C) @ (l2 - h2.W_C)
+    uhat = (u1 - h1.W_C) @ (u2 - h2.W_C)
+
+    return h1.clone(
+        W_c=h1.W_C.T @ h2.W_C,
+        W_G=h1.cat(
+            [t.sparse.mm(h1.W_G, h2.W_C.unsqueeze(-1).to_sparse_coo())],
+            [t.sparse.mm(h2.W_G, h1.W_C.unsqueeze(-1).to_sparse_coo())],
+            [lhat.unsqueeze(0).to_sparse_coo()],
+            [(1, h1.N)],
+            [uhat.unsqueeze(0).to_sparse_coo()],
+            [(1, h1.N)],
+        ),
+        W_Gp=h1.cat(
+            [t.sparse.mm(h1.W_Gp, h2.W_C.unsqueeze(-1).to_sparse_coo())],
+            [t.sparse.mm(h2.W_Gp, h1.W_C.unsqueeze(-1).to_sparse_coo())],
+        ),
+        W_A=h1.cat(
+            [h1.W_A, (h1.I, h2.J + 2)],
+            [(h2.I, h1.J), h2.W_A, (h2.I, 2)],
+            [(4, h1.J + h2.J), h1.as_sparse_tensor([[1, 0], [1, 0], [0, 1], [0, 1]])],
+        ),
+        W_Ap=h1.cat([h1.W_Ap, (h1.Ip, h2.J + 2)], [(h2.Ip, h1.J), h2.W_A, (h2.Ip, 2)]),
+        W_b=h1.cat([h1.W_B, h2.W_B, h1.as_tensor([-1, 1])]),
+    )

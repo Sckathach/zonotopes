@@ -374,6 +374,12 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   caption: [Reciprocal abstract transformer for Zonotope vs HCZ],
 )
 
+= Implementation
+== Tuning hyperparameters
+If $norm(Lambda)$ is big, the norms in the concretisation ($norm(G - Lambda A)_1$) will add a huge over-approximation, even if $G_i$ is zero for a given variable. This occurs when the number of noise generators is large (\~1000). To reduce this over-approximation, it is important to choose well the hyperparameters, especially the learning rate. Similar to LLM training, it can be chosen very small (\~$1e-5$).
+== Sparse tensors
+The union makes the size of the tensors grow exponentially, which quickly leads to OOM errors. For instance, $nn=1000$ with $ng = 1000$ requires approximately $10$Go of VRAM. However, as the tensors are mostly empty, it is possible to use sparse matrices, which considerably reduces the memory footprint. For instance, the same parameters ($nn=1000, ng=1000$) takes only $300$Mo of VRAM with sparse tensors. Which makes it usable in practice.
+
 // For convex $C^1$ continuous functions, all tangents to the curve of the function yield viable transformers. The resulting parallelogram can be parametrized by the abscissa of the contact point $t$ with $lower ≤ t ≤ upper$. Using the mean value theorem and convexity, it follows that there will be a point $tc$ where the upper edge of the parallelogram will connect the lower and upper endpoints of the graph. For $t < tc$ it will make contact on the upper endpoint and for $t > tc$ on the lower endpoint. This allows to describe the parameters $lambda, mu$ and $beta$ of a zonotope transformer for a function $f(x) : RR -> RR$ on the interval $[lower, upper]$ as:
 //
 // $
