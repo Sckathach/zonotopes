@@ -223,9 +223,9 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   Let $Z_1 = hcz(c_1, G_1, G'_1, A_1, A'_1, b_1), Z_2 = hcz(c_2, G_2, G'_2, A_2, A'_2, b_2) in RR^nn$, then, the dot product can be computed as $Z_1 dot Z_2 = hcz(c, G, G', A, A', b)$ with:
   $
     c &= c_1^top c_2, dspace G = mmat(c_2^top G_1, c_1^top G_2, hat(G)), dspace G' = mmat(c_2^top G'_1, c_1^top G'_2) \
-    A &= mmat(A_1, b0, b0; b0, A_2, b0; b0, b0, hat(A)), A' = mmat(A'_1, b0; b0, A'_2; b0, b0), b = mmat(b_1; b_2; hat(b)) \
-    hat(G) &= mmat(hat(l), 0, hat(u), 0), hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), hat(b) = mmat(-1; 1) \
-    hat(l) &= (l_1 - c_1)^top (l_2 - c_2), hat(u) = (u_1 - c_1)^top (u_2 - c_2)
+    A &= mmat(A_1, b0, b0; b0, A_2, b0; b0, b0, hat(A)), dspace A' = mmat(A'_1, b0; b0, A'_2; b0, b0), dspace b = mmat(b_1; b_2; hat(b)) \
+    hat(G) &= mmat(hat(l), 0, hat(u), 0), dspace hat(A) = mmat(1, 1, 0, 0; 0, 0, 1, 1), dspace hat(b) = mmat(-1; 1) \
+    hat(l) &= (l_1 - c_1)^top (l_2 - c_2), dspace hat(u) = (u_1 - c_1)^top (u_2 - c_2)
   $
 ]
 #proof[
@@ -358,6 +358,40 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   @niklas_boosting_2021
 ]
 
+#theorem[
+  To construct the HCZ using two zonotopes, an approximately minimal area HCZ can be defined using a mid point $m$ as $f'(m) = (f(u)-f(l)) / (u-l)$.
+]
+#proof[
+  The exact area of the union of two zonotopes involves knowing $f'^(-1)$, thus we used a proxy measure, the area between the top of the zonotope and the curve. This area is defined parametrized by the mid point $m$:
+  $
+    A(m) = underbrace(integral_l^m (L_(l, m) (x) - f(x)) "d" x, A_l (m)) + integral_m^u (L_(m, u) (x) - f(x)) "d" x
+  $
+
+  $
+    A_l (m) = integral_l^m (L_(l, m) (x) - f(x)) "d" x = integral_l^m g(x, m) "d" x \ 
+    "d"/("d" m) A_l (m) = underbrace(g(m, m), 0) + integral_l^m (diff g)/ (diff m) (x, m) "d" x 
+  $
+  $
+    (diff g)/ (diff m) (x, m) = underbrace([((m-l) f'(m) - (f(m) - f(l)))/(m-l)^2], alpha) (x - l) \ 
+    "d"/("d" m) A_l (m) = alpha integral_l^m (x-l) "d" x = alpha (m-l)^2 / 2
+  $
+  Thus:
+  $
+    "d"/("d" m) A_l (m) = 1/2 [f'(m) - (f(m) - f(l))/ (m-l)] (m-l)
+  $
+  Similarly:
+  $
+    "d"/("d" m) A_u (m) = 1/2 [f'(m) - (f(u) - f(m))/ (u-m)] (u-m)
+  $
+  With $A'(m) = A'_l (m) + A'_u (m)$, setting $A'(m) = 0$ leads to: 
+  $
+    f'(m^*) = (f(u)-f(l)) / (u-l)
+  $
+]
+
+- Exponential: $m^* = log((e^u - e^l)/(u-l))$.
+- Reciprocal: $m^* = sqrt(u l)$. 
+
 #figure(
   grid(
     columns: 2,
@@ -373,6 +407,60 @@ This is a minimisation problem that can be solved with a MILP, which would make 
   ),
   caption: [Reciprocal abstract transformer for Zonotope vs HCZ],
 )
+
+= Reduction
+== Redundant continuous generators
+#theorem[
+  Let $i in NN^ng$ and:
+  $
+    Eps_(L, i) = min {Eps_i | A Eps + A' Eps' = b, norm(Eps_(j != i))_oo <= 1, Eps' in {-1, 1}^nb} \
+    Eps_(U, i) = max {Eps_i | A Eps + A' Eps' = b, norm(Eps_(j != i))_oo <= 1, Eps' in {-1, 1}^nb} \
+  $ <eq:reduc>
+  Then, if $[Eps_(L, i), Eps_(U, i)] subset.eq [-1, 1]$, the $i$-th noise term can be removed to form the following reduced HCZ @bird_hybrid_2022: 
+  $
+    tilde(Z) = hcz(c + Gamma_G b, G - Gamma_G A, G' - Gamma_G A', A - Gamma_A A, A' - Gamma_A A', b - Gamma_A b)
+  $ <eq:reduce>
+  where $Gamma_G = G E_(i k) (A_(k i))^(-1) in RR^(nn times nc), Gamma_A = A E_(i k) (A_(k i))^(-1) in RR^(nc times nc), E_(i k) in RR^(ng times nc)$ is a matrix with zero entries except for a one in the $(i, k)$ position, and $k in [|1, nc|]$ such that $A_(k i) != 0$.
+]
+#proof[@bird_hybrid_2022]
+
+While solving @eq:reduc would require a MILP, it is possible to overapproximate and find a portion of the candidates generators. 
+
+#theorem[
+  For $j in [|1, ng |]$, and the interval $cal(I)_j$ defined by: 
+  $
+    cal(I)_j = inter.big_k cases(1/a_(k j) [b_k - sum_(i != j) abs(a_(k i)) - sum_i abs(a'_(k i)), b_k + sum_(i!=j) abs(a_(k i)) + sum_i abs(a'_(k i))] \, "if" a_(k j) != 0, [-oo, oo] \, "else") 
+  $
+  we have $Eps_j subset.eq cal(I)_j$. Thus $cal(I)_j subset.eq [-1, 1] => Eps_j in [-1, 1]$, and $Eps_j$ can be a candidate to reduction.
+]
+#proof[
+  Let $j in [|1, ng|]$, and $k in [|1, nc|]$, $A_k Eps + A'_k Eps' = b_k$ can be rewritten:
+  $
+    a_(k j) eps_j = b_k - sum_(i != j) a_(k i) eps_i - sum_i a'_(k i) eps'_i 
+  $ 
+  If $eps_j$ does not appear in the equation, $a_(k j) = 0$ and the equation does not add any information on $eps_j$, $eps_j in [-oo, oo]$. If $a_(k j) != 0$, the equation gives a lower and upper bound on $eps_j$: 
+  $
+    1/(a_(k j)) b_k - sum_(i != j) abs(a_(k i)) - sum_i abs(a'_(k i)) <= eps_j <= 1/(a_(k j)) b_k + sum_(i != j) abs(a_(k i)) + sum_i abs(a'_(k i)) 
+  $
+  Let's name this interval $cal(I)_(j k)$, then every line gives a new constraint, either $[-oo, oo]$, or $cal(I)_(j k)$, and $eps_j$ can be bounded by $cal(I)_j = inter.big_k cal(I)_(j k) or [-oo, oo]$.
+]
+
+== Constraint reduction
+
+#theorem[
+  We can reapply the above formula @eq:reduce to remove one constraint and one continuous generator, however, if the hypothesis @eq:reduc is not valid, the resulting zonotope will be an over-approximation of the initial one. This may be used to remove one continuous generator, but it has to appear in the constraints.
+]
+#proof[@bird_hybrid_2022]
+
+
+== Additional trivial checks
+For every constraint $j$:
+- If $b_j = norm(A_j)_1 = norm(A'_j)_1 = 0$, then the row/ constraint can be removed. 
+- If $abs(b_j) > norm(A_j)_1 + norm(A'_j)_1$, then the zonotope is empty. 
+
+For every generator $i$: 
+- If $norm(G_i)_1 = norm(A_i)_1 = 0$, the continuous generator $i$ can be removed.
+- If $norm(G'_i)_1 = norm(A'_i)_1 = 0$, the binary generator $i$ can be removed.
 
 = Implementation
 == Tuning hyperparameters
