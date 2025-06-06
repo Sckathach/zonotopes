@@ -1,44 +1,10 @@
-from typing import Callable
-
 import torch as t
 from jaxtyping import Float
 from torch import Tensor
 
 from zonotope.classical.functional import exp as classical_exp
 from zonotope.classical.functional import reciprocal as classical_reciprocal
-from zonotope.classical.z import Zonotope
 from zonotope.hcz.sparse import HCZSparse
-
-
-def get_permutation_matrix(h: HCZSparse) -> Float[Tensor, "N N"]:
-    r = h.zeros(h.N, h.N)
-    for i in range(h.N // 2):
-        r[2 * i, i] = 1
-        r[-1 - 2 * i, -i - 1] = 1
-    return r
-
-
-def classical_transformer(
-    lower: Tensor | float,
-    upper: Tensor | float,
-    abs_fn: Callable[[Zonotope], Zonotope],
-    eps: float = 1e-5,
-) -> HCZSparse:
-    if t.abs(t.as_tensor(lower - upper)) < eps:
-        z = Zonotope.from_values(center=t.as_tensor([lower]))
-    else:
-        z = Zonotope.from_bounds(lower=t.as_tensor([lower]), upper=t.as_tensor([upper]))
-    r = abs_fn(z)
-
-    if z.Ei > 0 and r.Ei > 0:
-        return HCZSparse.from_values(
-            [z.W_C[0].item(), r.W_C[0].item()],
-            t.tensor([[z.W_Ei[0, 0].item(), 0], r.W_Ei.tolist()[0]]).T,
-        )
-
-    return HCZSparse.from_values(
-        [z.W_C[0].item(), r.W_C[0].item()],
-    )
 
 
 def abstract_relu(
@@ -89,34 +55,6 @@ def abstract_exponential(lower: Tensor | float, upper: Tensor | float) -> HCZSpa
 
 def exp(z: HCZSparse, **kwargs) -> HCZSparse:
     return apply_abstract_transformer(z, abstract_exponential, **kwargs)
-
-
-def apply_abstract_transformer(
-    z_in: HCZSparse,
-    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZSparse],
-    **kwargs,
-) -> HCZSparse:
-    lower, upper = z_in.concretize(**kwargs)
-    z_abs = abs_transformer(lower[0], upper[0])
-
-    for i in range(1, z_in.N):
-        z_abs = z_abs.cartesian_product(
-            abs_transformer(lower[i], upper[i]), check_emptiness=False
-        )
-
-    z_abs.load_config_from_(z_in)
-    perm = get_permutation_matrix(z_abs)
-    r_in = t.cat([z_in.eye(z_in.N), z_in.zeros(z_in.N, z_in.N)], dim=-1)
-    perm_z_abs = z_abs.mm(perm)
-    intermediate_result = perm_z_abs.intersect(
-        z_in,
-        r_in.T,
-        check_emptiness_before=False,
-        check_emptiness_after=False,
-        **kwargs,
-    )
-    r_out = t.cat([z_in.zeros(z_in.N, z_in.N), z_in.eye(z_in.N)], dim=-1)
-    return intermediate_result.mm(r_out.T)
 
 
 def linear(z: HCZSparse, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZSparse:

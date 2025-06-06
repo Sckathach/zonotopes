@@ -172,10 +172,10 @@ def plot_abstract_transformer(
     y = concrete_function(x)
 
     zz1 = Zonotope.from_values(
-        [center_1, r_1.W_C[0]], [[width_1, 0], r_1.W_Ei.tolist()[0]]
+        [center_1, r_1.W_C[0]], [[width_1, 0], r_1.W_G.tolist()[0]]
     )
     zz2 = Zonotope.from_values(
-        [center_2, r_2.W_C[0]], [[width_2, 0], r_2.W_Ei.tolist()[0]]
+        [center_2, r_2.W_C[0]], [[width_2, 0], r_2.W_G.tolist()[0]]
     )
 
     plot_zonotope_2d(

@@ -1,178 +1,30 @@
-from functools import partial
-from typing import Any, Optional, Self, Tuple
+from typing import Literal, Optional, Self
 
-import torch as t
 from einops import einsum, rearrange, repeat
 from jaxtyping import Float
 from torch import Tensor
 from torch.linalg import norm
 
-from zonotope import DEFAULT_DEVICE, DEFAULT_DTYPE
-from zonotope.hcz.base import HCZBase, HCZConfig
-from zonotope.hcz.optimise import optimize_lambda
+from zonotope.hcz.base import HCZBase
 from zonotope.utils import get_dim_for_error_terms, get_einops_pattern_for_error_terms
 
 
 class HCZDense(HCZBase):
-    def __init__(
-        self,
-        W_C: Float[Tensor, "..."],
-        W_G: Optional[Float[Tensor, "I ..."]] = None,
-        W_Gp: Optional[Float[Tensor, "Ip ..."]] = None,
-        W_A: Optional[Float[Tensor, "I J"]] = None,
-        W_Ap: Optional[Float[Tensor, "Ip J"]] = None,
-        W_B: Optional[Float[Tensor, "J"]] = None,
-        config: Optional[HCZConfig] = None,
-        clone: bool = True,
-        **kwargs,
-    ) -> None:
-        super().__init__(W_C, W_G, W_Gp, W_A, W_Ap, W_B, config, clone, **kwargs)
-
-    @classmethod
-    def from_values(
-        cls,
-        W_C: Any,
-        W_G: Any = None,
-        W_Gp: Any = None,
-        W_A: Any = None,
-        W_Ap: Any = None,
-        W_B: Any = None,
-        dtype: t.dtype = DEFAULT_DTYPE,
-        device: t.device = DEFAULT_DEVICE,
-        config: Optional[HCZConfig] = None,
-        **kwargs,
-    ) -> Self:
-        as_tensor = partial(t.as_tensor, dtype=dtype, device=device)
-
-        return cls(
-            W_c=as_tensor(W_C),
-            W_G=as_tensor(W_G) if W_G is not None else None,
-            W_Gp=as_tensor(W_Gp) if W_Gp is not None else None,
-            W_A=as_tensor(W_A) if W_A is not None else None,
-            W_Ap=as_tensor(W_Ap) if W_Ap is not None else None,
-            W_b=as_tensor(W_B) if W_B is not None else None,
-            config=config,
-            **kwargs,
-        )
-
-    @classmethod
-    def from_bounds(
-        cls,
-        lower: Any,
-        upper: Any,
-        dtype: t.dtype = DEFAULT_DTYPE,
-        device: t.device = DEFAULT_DEVICE,
-    ) -> "HCZDense":
-        lower_ = t.as_tensor(lower, dtype=dtype, device=device)
-        upper_ = t.as_tensor(upper, dtype=dtype, device=device)
-
-        center = (lower_ + upper_) / 2
-        radius = (upper_ - lower_) / 2
-
-        radius_flat = radius.reshape(-1)
-        radius_flat_nonzero = radius_flat[radius_flat != 0]
-        N: int = radius_flat_nonzero.shape[0]
-        radius_eye_non_zero = t.eye(N, dtype=dtype, device=device) * radius_flat_nonzero
-        radius_expanded = t.zeros(radius_flat.shape[0], N, dtype=dtype, device=device)
-        radius_expanded[radius_flat != 0] = radius_eye_non_zero
-        radius_reshaped = radius_expanded.reshape(*center.shape, N)
-        return cls.from_values(W_C=center, W_G=radius_reshaped)
-
-    def concretize(self, **kwargs) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
-        """
-        Returns: lower, upper
-        """
-        if self.J == 0:
-            return self.dual_lower(self.zeros(*self.shape, self.J)), -self.dual_upper(
-                self.zeros(*self.shape, self.J)
-            )
-
-        kwargs = {"lr": self.config.lr, "n_steps": self.config.n_steps} | kwargs
-        lambda_lower = optimize_lambda(
-            (*self.shape, self.J),
-            self.dual_lower,
-            device=self.device,
-            dtype=self.dtype,
-            **kwargs,
-        )
-        lambda_upper = optimize_lambda(
-            (*self.shape, self.J),
-            self.dual_upper,
-            device=self.device,
-            dtype=self.dtype,
-            **kwargs,
-        )
-
-        return self.dual_lower(lambda_lower), -self.dual_upper(lambda_upper)
-
-    def dual_lower(self, lmda: Float[Tensor, "... j"]) -> Float[Tensor, "..."]:
+    def dual(
+        self, lmda: Float[Tensor, "... J"], bound: Literal["upper", "lower"] = "lower"
+    ) -> Float[Tensor, "..."]:
+        coeff = -1 if bound == "upper" else 1
         return (
-            self.W_C
-            + einsum(lmda, self.W_B, "... j, j -> ...")
-            - norm(
-                self.W_G - einsum(lmda, self.W_A, "... j, j i -> ... i"),
-                ord=1,
-                dim=-1,
-            )
-            - norm(
-                self.W_Gp - einsum(lmda, self.W_Ap, "... j, j ip -> ... ip"),
-                ord=1,
-                dim=-1,
-            )
+            coeff * self.W_C
+            + lmda @ self.W_B
+            - norm(self.W_G - coeff * lmda @ self.W_A, ord=1, dim=-1)
+            - norm(self.W_Gp - coeff * lmda @ self.W_Ap, ord=1, dim=-1)
         )
-
-    def dual_upper(self, lmda: Float[Tensor, "... j"]) -> Float[Tensor, "..."]:
-        return (
-            -self.W_C
-            + einsum(lmda, self.W_B, "... j, j -> ...")
-            - norm(
-                -self.W_G - einsum(lmda, self.W_A, "... j, j i -> ... i"),
-                ord=1,
-                dim=-1,
-            )
-            - norm(
-                -self.W_Gp - einsum(lmda, self.W_Ap, "... j, j ip -> ... ip"),
-                ord=1,
-                dim=-1,
-            )
-        )
-
-    def add(self, other: Self | float | int | Tensor) -> Self:  # type: ignore
-        if isinstance(other, HCZDense):
-            return self.clone(
-                W_c=self.W_C + other.W_C,
-                W_G=self.cat([self.W_G, other.W_G]),
-                W_Gp=self.cat([self.W_Gp, other.W_Gp]),
-                W_A=self.cat(
-                    [self.W_A, (self.J, other.I)],
-                    [(other.J, self.I), other.W_A],
-                ),
-                W_Ap=self.cat(
-                    [self.W_Ap, (self.J, other.Ip)], [(other.J, self.Ip), other.W_Ap]
-                ),
-                W_b=self.cat([self.W_B, other.W_B]),
-            )
-
-        return self.clone(W_c=self.W_C + other)
-
-    def mul(self, other: float | int | Tensor) -> Self:
-        if isinstance(other, Tensor):
-            return self.clone(
-                W_c=self.W_C * other,
-                W_G=self.W_G * other.unsqueeze(-1),
-                W_Gp=self.W_Gp * other.unsqueeze(-1),
-            )
-        else:
-            return self.clone(
-                W_c=self.W_C * other,
-                W_G=self.W_G * other,
-                W_Gp=self.W_Gp * other,
-            )
 
     def intersect(
-        self, other: Self, r: Optional[Float[Tensor, "N2 N1"]] = None, **kwargs
+        self, other: Self, r: Optional[Float[Tensor, "M N"]] = None, **kwargs
     ) -> Self:
-        if self.N == 0 or other.N == 0:
+        if self.is_empty() or other.is_empty():
             return self.empty_from_self()
 
         w_c_flat = self.W_C.clone().reshape(-1)
@@ -183,9 +35,9 @@ class HCZDense(HCZBase):
         o_gp_flat = other.W_Gp.clone().reshape(other.N, other.Ip)
 
         if r is not None:
-            w_c_flat = einsum(r, w_c_flat, "n2 n1, n1 -> n2")
-            w_g_flat = einsum(r, w_g_flat, "n2 n1, n1 i -> n2 i")
-            w_gp_flat = einsum(r, w_gp_flat, "n2 n1, n1 ip -> n2 ip")
+            w_c_flat = einsum(r, w_c_flat, "M N, N -> M")
+            w_g_flat = einsum(r, w_g_flat, "M N, N I -> M I")
+            w_gp_flat = einsum(r, w_gp_flat, "M N, N Ip -> M Ip")
 
         new_b = [[self.W_B], [other.W_B]]
         if self.I != 0 or self.Ip != 0 or other.I != 0 or other.Ip != 0:
@@ -210,27 +62,6 @@ class HCZDense(HCZBase):
             return self.empty_from_self()
 
         return result
-
-    def is_empty(self, **kwargs) -> bool:
-        lower, upper = self.concretize(**kwargs)
-        return bool(t.any(lower > upper).item())
-
-    def cartesian_product(self, other: Self) -> Self:
-        return self.clone(
-            W_c=self.cat([self.W_C], [other.W_C]),
-            W_G=self.cat(
-                [self.W_G, (*self.shape, other.I)], [(*other.shape, self.I), other.W_G]
-            ),
-            W_Gp=self.cat(
-                [self.W_Gp, (*self.shape, other.Ip)],
-                [(*other.shape, self.Ip), other.W_Gp],
-            ),
-            W_A=self.cat([self.W_A, (self.J, other.I)], [(other.J, self.I), other.W_A]),
-            W_Ap=self.cat(
-                [self.W_Ap, (self.J, other.Ip)], [(other.J, self.Ip), other.W_Ap]
-            ),
-            W_b=self.cat([self.W_B], [other.W_B]),
-        )
 
     def union(self, other: Self) -> Self:
         if self.N == 0:

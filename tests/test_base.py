@@ -25,8 +25,8 @@ def simple_zonotope(device):
     special_terms = t.tensor([[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]], device=device)
 
     return Zonotope(
-        center=center,
-        infinity_terms=infinity_terms,
+        W_C=center,
+        W_G=infinity_terms,
         special_terms=special_terms,
         special_norm=2,
     )
@@ -50,8 +50,8 @@ def batch_zonotope(device):
     )
 
     return Zonotope(
-        center=center,
-        infinity_terms=infinity_terms,
+        W_C=center,
+        W_G=infinity_terms,
         special_terms=special_terms,
         special_norm=2,
     )
@@ -63,7 +63,7 @@ def zonotope_no_inf(device):
     center = t.tensor([1.0, 2.0], device=device)
     special_terms = t.tensor([[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]], device=device)
 
-    return Zonotope(center=center, special_terms=special_terms, special_norm=2)
+    return Zonotope(W_C=center, special_terms=special_terms, special_norm=2)
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def zonotope_no_special(device):
     center = t.tensor([1.0, 2.0], device=device)
     infinity_terms = t.tensor([[0.1, 0.2], [0.3, 0.4]], device=device)
 
-    return Zonotope(center=center, infinity_terms=infinity_terms, special_norm=2)
+    return Zonotope(W_C=center, W_G=infinity_terms, special_norm=2)
 
 
 class TestZonotope:
@@ -86,31 +86,31 @@ class TestZonotope:
         special_terms = t.tensor([[0.01, 0.02], [0.03, 0.04]], device=device)
 
         z = Zonotope(
-            center=center,
-            infinity_terms=infinity_terms,
+            W_C=center,
+            W_G=infinity_terms,
             special_terms=special_terms,
             special_norm=2,
         )
 
         assert t.allclose(z.W_C, center)
-        assert t.allclose(z.W_Ei, infinity_terms)
+        assert t.allclose(z.W_G, infinity_terms)
         assert t.allclose(z.W_Es, special_terms)
         assert z.p == 2
         assert z.q == 2  # Dual of 2-norm is 2
 
         # Test with only center
-        z = Zonotope(center=center)
+        z = Zonotope(W_C=center)
         assert t.allclose(z.W_C, center)
         assert z.Ei == 0
         assert z.Es == 0
 
         # Test with non-default p-norm
-        z = Zonotope(center=center, special_norm=3)
+        z = Zonotope(W_C=center, special_norm=3)
         assert z.p == 3
         assert z.q == 1.5  # Dual of 3-norm is 3/2
 
         # Test without cloning
-        z = Zonotope(center=center, clone=False)
+        z = Zonotope(W_C=center, clone=False)
         assert z.W_C is center  # Same object, not a clone
 
     def test_properties(self, simple_zonotope):
@@ -132,15 +132,15 @@ class TestZonotope:
         """Test the from_values class method."""
         # Test with list inputs
         z = Zonotope.from_values(
-            center=[1.0, 2.0],
-            infinity_terms=[[0.1, 0.2], [0.3, 0.4]],
+            W_C=[1.0, 2.0],
+            W_G=[[0.1, 0.2], [0.3, 0.4]],
             special_terms=[[0.01, 0.02], [0.03, 0.04]],
             special_norm=2,
         )
 
         assert z.W_C.device.type == "cpu"
         assert z.W_C.shape == t.Size([2])
-        assert z.W_Ei.shape == t.Size([2, 2])
+        assert z.W_G.shape == t.Size([2, 2])
         assert z.W_Es.shape == t.Size([2, 2])
 
         # Test with numpy arrays if available
@@ -148,7 +148,7 @@ class TestZonotope:
             import numpy as np
 
             center_np = np.array([1.0, 2.0])
-            z = Zonotope.from_values(center=center_np)
+            z = Zonotope.from_values(W_C=center_np)
             assert isinstance(z.W_C, t.Tensor)
             assert z.W_C.shape == t.Size([2])
         except ImportError:
@@ -166,7 +166,7 @@ class TestZonotope:
 
         # Check radius is half the difference
         expected_radius = t.tensor([[1.0], [1.0]], device=device)
-        assert t.allclose(z.W_Ei, expected_radius)
+        assert t.allclose(z.W_G, expected_radius)
 
         # No special terms by default
         assert z.Es == 0

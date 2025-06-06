@@ -9,6 +9,7 @@
         "pytest (>=8.3.5,<9.0.0)",
         "torch (>=2.6.0,<3.0.0)",
         "tqdm (>=4.67.1,<5.0.0)",
+        "types-tqdm (>=4.67.0.20250516,<5.0.0.0)",
     ]
     description=""
     name="zonotope"
@@ -53,7 +54,7 @@
 
 [[tool.mypy.overrides]]
     ignore_missing_imports=true
-    module=["circuitsvis.*", "einx.*", "scipy.*", "sklearn.*", "transformer_lens.*"]
+    module=["circuitsvis.*", "einx.*", "scipy.*", "sklearn.*", "tqdm.*", "transformer_lens.*"]
 
 [tool.pyright]
-    ignore=["circuitsvis", "einx", "scipy", "sklearn", "transformer_lens"]
+    ignore=["circuitsvis", "einx", "scipy", "sklearn", "tqdm", "transformer_lens"]

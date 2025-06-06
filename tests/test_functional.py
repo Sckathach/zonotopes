@@ -16,9 +16,7 @@ from zonotope.classical.z import Zonotope
 def test_relu_transformer_all_positive():
     """Test ReLU transformer when all bounds are positive"""
     # Create a zonotope with all positive bounds
-    z = Zonotope.from_values(
-        [2.0, 3.0, 4.0], infinity_terms=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
-    )
+    z = Zonotope.from_values([2.0, 3.0, 4.0], W_G=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
 
     lower, upper = z.concretize()
     assert t.all(lower > 0)  # Verify all bounds are positive
@@ -27,7 +25,7 @@ def test_relu_transformer_all_positive():
 
     # For positive bounds, ReLU should be identity
     assert t.allclose(result.W_C, z.W_C)
-    assert t.allclose(result.W_Ei, z.W_Ei)
+    assert t.allclose(result.W_G, z.W_G)
     assert t.allclose(result.W_Es, z.W_Es)
 
 
@@ -35,7 +33,7 @@ def test_relu_transformer_all_negative():
     """Test ReLU transformer when all bounds are negative"""
     # Create a zonotope with all negative bounds
     z = Zonotope.from_values(
-        [-2.0, -3.0, -4.0], infinity_terms=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
+        [-2.0, -3.0, -4.0], W_G=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
     )
 
     lower, upper = z.concretize()
@@ -45,16 +43,14 @@ def test_relu_transformer_all_negative():
 
     # For negative bounds, ReLU should output zeros
     assert t.allclose(result.W_C, t.zeros_like(z.W_C))
-    assert t.allclose(result.W_Ei, t.zeros_like(z.W_Ei))
+    assert t.allclose(result.W_G, t.zeros_like(z.W_G))
     assert t.allclose(result.W_Es, t.zeros_like(z.W_Es))
 
 
 def test_relu_transformer_crossing_zero():
     """Test ReLU transformer when bounds cross zero"""
     # Create a zonotope with bounds crossing zero
-    z = Zonotope.from_values(
-        [-1.0, 0.0, 1.0], infinity_terms=[[2.0, 0.0], [2.0, 0.0], [0.5, 0.0]]
-    )
+    z = Zonotope.from_values([-1.0, 0.0, 1.0], W_G=[[2.0, 0.0], [2.0, 0.0], [0.5, 0.0]])
 
     lower, upper = z.concretize()
 
@@ -70,9 +66,7 @@ def test_relu_transformer_crossing_zero():
 
 def test_tanh_transformer():
     """Test tanh transformer"""
-    z = Zonotope.from_values(
-        [-2.0, 0.0, 2.0], infinity_terms=[[0.5, 0.0], [1.0, 0.0], [0.5, 0.0]]
-    )
+    z = Zonotope.from_values([-2.0, 0.0, 2.0], W_G=[[0.5, 0.0], [1.0, 0.0], [0.5, 0.0]])
 
     result = tanh(z)
     assert result.Ei == z.Ei + 1, "New term should be added"
@@ -87,9 +81,7 @@ def test_tanh_transformer():
 
 def test_exp_transformer():
     """Test exponential transformer"""
-    z = Zonotope.from_values(
-        [-1.0, 0.0, 1.0], infinity_terms=[[0.5, 0.0], [0.5, 0.0], [0.5, 0.0]]
-    )
+    z = Zonotope.from_values([-1.0, 0.0, 1.0], W_G=[[0.5, 0.0], [0.5, 0.0], [0.5, 0.0]])
 
     result = exp(z)
     assert result.Ei == z.Ei + 1, "New term should be added"
@@ -103,9 +95,7 @@ def test_exp_transformer():
 def test_reciprocal_transformer():
     """Test reciprocal transformer"""
     # Create test zonotope with positive bounds
-    z = Zonotope.from_values(
-        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]]
-    )
+    z = Zonotope.from_values([1.0, 2.0, 3.0], W_G=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]])
 
     lower, _ = z.concretize()
     result = reciprocal(z)
@@ -119,9 +109,7 @@ def test_reciprocal_transformer():
 
 
 def test_dot_product():
-    z = Zonotope.from_values(
-        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]]
-    )
+    z = Zonotope.from_values([1.0, 2.0, 3.0], W_G=[[0.2, 0.0], [0.5, 0.0], [0.5, 0.0]])
 
     result = dot_product(z, z, pattern="a, a -> ")
 
@@ -133,9 +121,7 @@ def test_dot_product():
 
 
 def test_softmax():
-    z = Zonotope.from_values(
-        [1.0, 2.0, 3.0], infinity_terms=[[0.2, 0.0], [0.5, 0.0], [0.0, 1.0]]
-    )
+    z = Zonotope.from_values([1.0, 2.0, 3.0], W_G=[[0.2, 0.0], [0.5, 0.0], [0.0, 1.0]])
 
     result = softmax(z)
 

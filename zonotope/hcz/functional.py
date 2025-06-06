@@ -19,7 +19,7 @@ def get_abstract_transformer_from_classical_zonotope(
     classical_zonotope_abstract_transformer: Callable[[Zonotope], Zonotope],
 ) -> HCZDense:
     if t.allclose(t.as_tensor(lower), t.as_tensor(upper)):
-        z = Zonotope.from_values(center=t.as_tensor([lower]))
+        z = Zonotope.from_values(W_C=t.as_tensor([lower]))
     else:
         z = Zonotope.from_bounds(lower=t.as_tensor([lower]), upper=t.as_tensor([upper]))
     r = classical_zonotope_abstract_transformer(z)
@@ -27,7 +27,7 @@ def get_abstract_transformer_from_classical_zonotope(
     if z.Ei > 0 and r.Ei > 0:
         return HCZDense.from_values(
             [z.W_C[0].item(), r.W_C[0].item()],
-            [[z.W_Ei[0, 0].item(), 0], r.W_Ei.tolist()[0]],
+            [[z.W_G[0, 0].item(), 0], r.W_G.tolist()[0]],
         )
 
     return HCZDense.from_values(
