@@ -1,25 +1,18 @@
 import math
-from types import EllipsisType
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Self, Tuple
 
 import torch as t
 from jaxtyping import Float
-from pydantic import BaseModel, PositiveInt
 from torch import Tensor
 from torch.linalg import norm
 
 from zonotope import DEFAULT_DEVICE, DEFAULT_DTYPE
-from zonotope.hcz import DEFAULT_LR, DEFAULT_N_STEPS
+from zonotope.hcz.base import HCZBase, HCZConfig
 from zonotope.hcz.optimise import optimize_lambda
 from zonotope.utils import parse_einops_pattern
 
 
-class HCZConfig(BaseModel):
-    lr: float = DEFAULT_LR
-    n_steps: PositiveInt = DEFAULT_N_STEPS
-
-
-class HCZ:
+class HCZSparse(HCZBase):
     def __init__(
         self,
         W_C: Float[Tensor, "N"],
@@ -34,57 +27,12 @@ class HCZ:
         **kwargs,
     ) -> None:
         self.virtual_shape = virtual_shape if virtual_shape is not None else W_C.shape
-        self.config = config if config is not None else HCZConfig(**kwargs)
-
-        # reshape sometimes clone sometimes not (view if possible)
-        self.W_C: Float[Tensor, "N"] = (
-            W_C.clone().reshape(-1) if clone else W_C.reshape(-1)
-        )
-
-        if W_G is None or W_G.shape[0] == 0:  # second condition to reset zeros'shape
-            self.W_G: Float[Tensor, "I N"] = self.zeros(0, self.N).to_sparse_coo()
-        else:
-            self.W_G = W_G.clone() if clone else W_G
-
-        if W_Gp is None or W_Gp.shape[0] == 0:
-            self.W_Gp: Float[Tensor, "Ip N"] = self.zeros(0, self.N).to_sparse_coo()
-        else:
-            self.W_Gp = W_Gp.clone() if clone else W_Gp
-
-        if W_B is None or W_B.shape[0] == 0:
-            self.W_B: Float[Tensor, "J"] = self.zeros(0)
-        else:
-            self.W_B = W_B.clone() if clone else W_B
-
-        if W_A is None or W_A.shape[0] == 0:
-            self.W_A: Float[Tensor, "I J"] = self.zeros(self.I, self.J).to_sparse_coo()
-        else:
-            self.W_A = W_A.clone() if clone else W_A
-
-        if W_Ap is None or W_Ap.shape[0] == 0:
-            self.W_Ap: Float[Tensor, "Ip J"] = self.zeros(
-                self.Ip, self.J
-            ).to_sparse_coo()
-        else:
-            self.W_Ap = W_Ap.clone() if clone else W_Ap
-
-    @property
-    def J(self) -> int:
-        return self.W_B.shape[0]
-
-    @property
-    def Ip(self) -> int:
-        return self.W_Gp.shape[0]
-
-    @property
-    def I(self) -> int:  # noqa: E743
-        return self.W_G.shape[0]
-
-    @property
-    def N(self) -> int:
-        return self.W_C.shape[0]
+        w_c = W_C.reshape(-1)
+        super().__init__(w_c, W_G, W_Gp, W_A, W_Ap, W_B, config, clone, **kwargs)
+        self.to_sparse_()
 
     def check_integrity(self) -> None:
+        super().check_integrity()
         assert not self.W_C.is_sparse
         assert not self.W_B.is_sparse
         assert self.W_G.is_sparse
@@ -96,18 +44,12 @@ class HCZ:
         assert self.W_Gp.shape == t.Size([self.Ip, self.N])
         assert self.W_A.shape == t.Size([self.I, self.J])
         assert self.W_Ap.shape == t.Size([self.Ip, self.J])
-        assert self.W_C.device == self.device
-        assert self.W_G.device == self.device
-        assert self.W_Gp.device == self.device
-        assert self.W_A.device == self.device
-        assert self.W_Ap.device == self.device
-        assert self.W_B.device == self.device
-        assert self.W_C.dtype == self.dtype
-        assert self.W_G.dtype == self.dtype
-        assert self.W_Gp.dtype == self.dtype
-        assert self.W_A.dtype == self.dtype
-        assert self.W_Ap.dtype == self.dtype
-        assert self.W_B.dtype == self.dtype
+
+    def to_sparse_(self) -> None:
+        self.W_G = self.W_G.to_sparse_coo()
+        self.W_Gp = self.W_Gp.to_sparse_coo()
+        self.W_A = self.W_A.to_sparse_coo()
+        self.W_Ap = self.W_Ap.to_sparse_coo()
 
     @classmethod
     def from_values(
@@ -122,28 +64,27 @@ class HCZ:
         device: t.device = DEFAULT_DEVICE,
         config: Optional[HCZConfig] = None,
         **kwargs,
-    ) -> "HCZ":
+    ) -> Self:
         def as_tensor(obj: Any) -> Tensor:
             return t.as_tensor(obj, dtype=dtype, device=device)
 
-        def as_sparse_tensor(obj: Any) -> Tensor:
-            return t.as_tensor(obj, dtype=dtype, device=device).to_sparse_coo()
-
-        w_c = as_tensor(W_C)
+        w_c = as_tensor(W_C).reshape(-1)
         shape = w_c.shape
-        result = cls(
-            W_C=w_c.reshape(-1),
-            W_G=as_sparse_tensor(W_G) if W_G is not None else None,
-            W_Gp=as_sparse_tensor(W_Gp) if W_Gp is not None else None,
-            W_A=as_sparse_tensor(W_A) if W_A is not None else None,
-            W_Ap=as_sparse_tensor(W_Ap) if W_Ap is not None else None,
-            W_B=as_tensor(W_B) if W_B is not None else None,
-            virtual_shape=shape,
+
+        result = super().from_values(
+            W_C=w_c,
+            W_G=W_G,
+            W_Gp=W_Gp,
+            W_A=W_A,
+            W_Ap=W_Ap,
+            W_B=W_B,
+            dtype=dtype,
+            device=device,
             config=config,
+            virtual_shape=shape,
             **kwargs,
         )
-        result.check_integrity()
-
+        result.to_sparse_()
         return result
 
     @classmethod
@@ -155,7 +96,7 @@ class HCZ:
         device: t.device = DEFAULT_DEVICE,
         config: Optional[HCZConfig] = None,
         **kwargs,
-    ) -> "HCZ":
+    ) -> "HCZSparse":
         lower_ = t.as_tensor(lower, dtype=dtype, device=device)
         upper_ = t.as_tensor(upper, dtype=dtype, device=device)
         shape = lower_.shape
@@ -173,39 +114,6 @@ class HCZ:
         return cls.from_values(
             W_c=center.reshape(*shape), W_G=radius_expanded, config=config, **kwargs
         )
-
-    @classmethod
-    def empty(cls, config: Optional[HCZConfig] = None, **kwargs) -> "HCZ":
-        return cls.from_values(W_c=[], config=config, **kwargs)
-
-    def empty_from_self(self) -> "HCZ":
-        return HCZ.empty(config=self.config, device=self.device, dtype=self.dtype)
-
-    def clone(
-        self,
-        W_C: Optional[Float[Tensor, "N"]] = None,
-        W_G: Optional[Float[Tensor, "I N"]] = None,
-        W_Gp: Optional[Float[Tensor, "Ip N"]] = None,
-        W_A: Optional[Float[Tensor, "I J"]] = None,
-        W_Ap: Optional[Float[Tensor, "Ip J"]] = None,
-        W_B: Optional[Float[Tensor, "J"]] = None,
-        virtual_shape: Optional[t.Size] = None,
-        config: Optional[HCZConfig] = None,
-    ) -> "HCZ":
-        result = HCZ(
-            W_C=self.W_C if W_C is None else W_C,
-            W_G=self.W_G if W_G is None else W_G,
-            W_Gp=self.W_Gp if W_Gp is None else W_Gp,
-            W_A=self.W_A if W_A is None else W_A,
-            W_Ap=self.W_Ap if W_Ap is None else W_Ap,
-            W_B=self.W_B if W_B is None else W_B,
-            virtual_shape=self.virtual_shape
-            if virtual_shape is None
-            else virtual_shape,
-            config=self.config if config is None else config,
-        )
-        result.check_integrity()
-        return result
 
     def concretize(self, **kwargs) -> Tuple[Float[Tensor, "N"], Float[Tensor, "N"]]:
         """
@@ -275,11 +183,11 @@ class HCZ:
             + self.W_B @ lmda  # J, J N -> N
         )
 
-    def add(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
+    def add(self, other: Self | float | int | Tensor) -> Self:  # type: ignore
         """
         !No emptiness check!
         """
-        if isinstance(other, HCZ):
+        if isinstance(other, HCZSparse):
             return self.clone(
                 W_C=self.W_C + other.W_C,
                 W_G=self.cat([self.W_G], [other.W_G]),  # I1 + I2, N
@@ -299,7 +207,7 @@ class HCZ:
 
         return self.clone(W_C=self.W_C + other)
 
-    def mul(self, other: Union[float, int, Tensor]) -> "HCZ":
+    def mul(self, other: float | int | Tensor) -> Self:
         """
         !No emptiness check!
         """
@@ -317,23 +225,14 @@ class HCZ:
                 W_Gp=self.W_Gp * other,
             )
 
-    def sub(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
-        return self + (-1 * other)
-
-    def rsub(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
-        return other + (-1 * self)
-
-    def div(self, other: Union[float, int, Tensor]) -> "HCZ":
-        return self * (1 / other)
-
     def intersect(
         self,
-        other: "HCZ",
+        other: Self,
         r: Optional[Float[Tensor, "N1 N2"]] = None,
         check_emptiness_before: bool = True,
         check_emptiness_after: bool = True,
         **kwargs,
-    ) -> "HCZ":
+    ) -> Self:
         if check_emptiness_before and (
             self.is_empty(**kwargs) or other.is_empty(**kwargs) == 0
         ):
@@ -372,11 +271,11 @@ class HCZ:
 
     def cartesian_product(
         self,
-        other: "HCZ",
+        other: Self,
         check_emptiness: bool = True,
         new_virtual_shape: Optional[t.Size] = None,
         **kwargs,
-    ) -> "HCZ":
+    ) -> Self:
         if check_emptiness:
             if self.is_empty(**kwargs):
                 return other
@@ -403,7 +302,7 @@ class HCZ:
             virtual_shape=new_virtual_shape,
         )
 
-    def union(self, other: "HCZ", check_emptiness: bool = True, **kwargs) -> "HCZ":
+    def union(self, other: Self, check_emptiness: bool = True, **kwargs) -> Self:
         if check_emptiness:
             if self.is_empty(**kwargs):
                 return other
@@ -498,35 +397,12 @@ class HCZ:
             ),
         )
 
-    def cat(
-        self,
-        *elements: List[Tensor | tuple],
-        row_dims: Optional[EllipsisType | int] = None,
-        column_dims: Optional[EllipsisType | int] = None,
-    ) -> Tensor:
-        if len(elements) == 0:
-            raise ValueError("No elements provided in self.cat")
-
-        return t.cat(
-            [
-                t.cat(
-                    [
-                        self.zeros(*j).to_sparse_coo() if isinstance(j, tuple) else j
-                        for j in i
-                    ],
-                    dim=column_dims if column_dims is not None else -1,
-                )
-                for i in elements
-            ],
-            dim=row_dims if row_dims is not None else 0,
-        )
-
-    def mm(self, other: Float[Tensor, "A B"]) -> "HCZ":
+    def mm(self, other: Float[Tensor, "A B"]) -> Self:
         return self.einsum(other)
 
     def einsum(
         self, other: Float[Tensor, "A B"], virtual_pattern: Optional[str] = None
-    ) -> "HCZ":
+    ) -> Self:
         if virtual_pattern is not None:
             patterns = parse_einops_pattern(
                 virtual_pattern, shape_a=self.virtual_shape, shape_b=other.shape
@@ -563,16 +439,3 @@ class HCZ:
             W_G=t.sparse.mm(self.W_G, other_expanded_permuted),
             W_Gp=t.sparse.mm(self.W_Gp, other_expanded_permuted),
         )
-
-    def __len__(self) -> int:
-        return self.N
-
-    __add__ = add
-    __radd__ = add
-    __mul__ = mul
-    __rmul__ = mul
-    __sub__ = sub
-    __rsub__ = rsub
-    __div__ = div
-    __repr__ = display_weights
-    __str__ = display_weights

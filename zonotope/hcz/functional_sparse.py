@@ -7,10 +7,10 @@ from torch import Tensor
 from zonotope.classical.functional import exp as classical_exp
 from zonotope.classical.functional import reciprocal as classical_reciprocal
 from zonotope.classical.z import Zonotope
-from zonotope.hybrid_constrained.hcz_sparse import HCZ
+from zonotope.hcz.sparse import HCZSparse
 
 
-def get_permutation_matrix(h: HCZ) -> Float[Tensor, "N N"]:
+def get_permutation_matrix(h: HCZSparse) -> Float[Tensor, "N N"]:
     r = h.zeros(h.N, h.N)
     for i in range(h.N // 2):
         r[2 * i, i] = 1
@@ -23,7 +23,7 @@ def classical_transformer(
     upper: Tensor | float,
     abs_fn: Callable[[Zonotope], Zonotope],
     eps: float = 1e-5,
-) -> HCZ:
+) -> HCZSparse:
     if t.abs(t.as_tensor(lower - upper)) < eps:
         z = Zonotope.from_values(center=t.as_tensor([lower]))
     else:
@@ -31,53 +31,55 @@ def classical_transformer(
     r = abs_fn(z)
 
     if z.Ei > 0 and r.Ei > 0:
-        return HCZ.from_values(
+        return HCZSparse.from_values(
             [z.W_C[0].item(), r.W_C[0].item()],
             t.tensor([[z.W_Ei[0, 0].item(), 0], r.W_Ei.tolist()[0]]).T,
         )
 
-    return HCZ.from_values(
+    return HCZSparse.from_values(
         [z.W_C[0].item(), r.W_C[0].item()],
     )
 
 
 def abstract_relu(
     lower: Tensor | float, upper: Tensor | float, eps: float = 1e-5
-) -> HCZ:
+) -> HCZSparse:
     if t.abs(t.as_tensor(lower - upper)) < eps:
         r = 0 if upper < 0 else upper
-        return HCZ.from_values([upper, r])
+        return HCZSparse.from_values([upper, r])
     if lower >= 0:
-        return HCZ.from_values(
+        return HCZSparse.from_values(
             [(upper + lower) / 2, (upper + lower) / 2],
             t.tensor([[(upper - lower) / 2], [(upper - lower) / 2]]).T,
         )
     if upper <= 0:
-        return HCZ.from_values(
+        return HCZSparse.from_values(
             [(upper + lower) / 2, 0], t.tensor([[(upper - lower) / 2], [0]]).T
         )
 
-    h1 = HCZ.from_values([lower / 2, 0], t.tensor([[lower / 2], [0]]).T)
-    h2 = HCZ.from_values([upper / 2, upper / 2], t.tensor([[upper / 2], [upper / 2]]).T)
+    h1 = HCZSparse.from_values([lower / 2, 0], t.tensor([[lower / 2], [0]]).T)
+    h2 = HCZSparse.from_values(
+        [upper / 2, upper / 2], t.tensor([[upper / 2], [upper / 2]]).T
+    )
     return h1.union(h2, check_emptiness=False)
 
 
-def relu(z: HCZ, **kwargs) -> HCZ:
+def relu(z: HCZSparse, **kwargs) -> HCZSparse:
     return apply_abstract_transformer(z, abstract_relu, **kwargs)
 
 
-def abstract_reciprocal(lower: Tensor | float, upper: Tensor | float) -> HCZ:
+def abstract_reciprocal(lower: Tensor | float, upper: Tensor | float) -> HCZSparse:
     mid_point = t.sqrt(t.as_tensor(upper * lower))
     h1 = classical_transformer(lower, mid_point, abs_fn=classical_reciprocal)
     h2 = classical_transformer(mid_point, upper, abs_fn=classical_reciprocal)
     return h1.union(h2, check_emptiness=False)
 
 
-def reciprocal(z: HCZ, **kwargs) -> HCZ:
+def reciprocal(z: HCZSparse, **kwargs) -> HCZSparse:
     return apply_abstract_transformer(z, abstract_reciprocal, **kwargs)
 
 
-def abstract_exponential(lower: Tensor | float, upper: Tensor | float) -> HCZ:
+def abstract_exponential(lower: Tensor | float, upper: Tensor | float) -> HCZSparse:
     lower_, upper_ = t.as_tensor(lower), t.as_tensor(upper)
     mid_point = t.log((t.exp(upper_) - t.exp(lower_)) / (upper_ - lower_))
     h1 = classical_transformer(lower, mid_point, abs_fn=classical_exp)
@@ -85,15 +87,15 @@ def abstract_exponential(lower: Tensor | float, upper: Tensor | float) -> HCZ:
     return h1.union(h2, check_emptiness=False)
 
 
-def exp(z: HCZ, **kwargs) -> HCZ:
+def exp(z: HCZSparse, **kwargs) -> HCZSparse:
     return apply_abstract_transformer(z, abstract_exponential, **kwargs)
 
 
 def apply_abstract_transformer(
-    z_in: HCZ,
-    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZ],
+    z_in: HCZSparse,
+    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZSparse],
     **kwargs,
-) -> HCZ:
+) -> HCZSparse:
     lower, upper = z_in.concretize(**kwargs)
     z_abs = abs_transformer(lower[0], upper[0])
 
@@ -117,11 +119,11 @@ def apply_abstract_transformer(
     return intermediate_result.mm(r_out.T)
 
 
-def linear(z: HCZ, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZ:
+def linear(z: HCZSparse, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZSparse:
     return z.mm(weight.T) + bias
 
 
-def dot_product(a: HCZ, b: HCZ, **kwargs) -> HCZ:
+def dot_product(a: HCZSparse, b: HCZSparse, **kwargs) -> HCZSparse:
     h1, h2 = a.clone(), b.clone()
 
     l1, u1 = h1.concretize(**kwargs)

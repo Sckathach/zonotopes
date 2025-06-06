@@ -10,14 +10,14 @@ from zonotope.classical.functional import exp as classical_exp
 from zonotope.classical.functional import reciprocal as classical_reciprocal
 from zonotope.classical.functional import tanh as classical_tanh
 from zonotope.classical.z import Zonotope
-from zonotope.hybrid_constrained.hcz import HCZ
+from zonotope.hcz.dense import HCZDense
 
 
 def get_abstract_transformer_from_classical_zonotope(
     lower: Tensor | float,
     upper: Tensor | float,
     classical_zonotope_abstract_transformer: Callable[[Zonotope], Zonotope],
-) -> HCZ:
+) -> HCZDense:
     if t.allclose(t.as_tensor(lower), t.as_tensor(upper)):
         z = Zonotope.from_values(center=t.as_tensor([lower]))
     else:
@@ -25,35 +25,37 @@ def get_abstract_transformer_from_classical_zonotope(
     r = classical_zonotope_abstract_transformer(z)
 
     if z.Ei > 0 and r.Ei > 0:
-        return HCZ.from_values(
+        return HCZDense.from_values(
             [z.W_C[0].item(), r.W_C[0].item()],
             [[z.W_Ei[0, 0].item(), 0], r.W_Ei.tolist()[0]],
         )
 
-    return HCZ.from_values(
+    return HCZDense.from_values(
         [z.W_C[0].item(), r.W_C[0].item()],
     )
 
 
-def abstract_relu(lower: Tensor | float, upper: Tensor | float) -> HCZ:
+def abstract_relu(lower: Tensor | float, upper: Tensor | float) -> HCZDense:
     if lower >= 0:
-        return HCZ.from_values(
+        return HCZDense.from_values(
             [(upper + lower) / 2, (upper + lower) / 2],
             [[(upper - lower) / 2], [(upper - lower) / 2]],
         )
     if upper <= 0:
-        return HCZ.from_values([(upper + lower) / 2, 0], [[(upper - lower) / 2], [0]])
+        return HCZDense.from_values(
+            [(upper + lower) / 2, 0], [[(upper - lower) / 2], [0]]
+        )
 
-    h1 = HCZ.from_values([lower / 2, 0], [[lower / 2], [0]])
-    h2 = HCZ.from_values([upper / 2, upper / 2], [[upper / 2], [upper / 2]])
+    h1 = HCZDense.from_values([lower / 2, 0], [[lower / 2], [0]])
+    h2 = HCZDense.from_values([upper / 2, upper / 2], [[upper / 2], [upper / 2]])
     return h1.union(h2)
 
 
-def relu(z: HCZ, **kwargs) -> HCZ:
+def relu(z: HCZDense, **kwargs) -> HCZDense:
     return apply_abstract_transformer(z, abstract_relu, **kwargs)
 
 
-def reciprocal(z: HCZ, **kwargs) -> HCZ:
+def reciprocal(z: HCZDense, **kwargs) -> HCZDense:
     fn = partial(
         get_abstract_transformer_from_classical_zonotope,
         classical_zonotope_abstract_transformer=classical_reciprocal,
@@ -62,7 +64,7 @@ def reciprocal(z: HCZ, **kwargs) -> HCZ:
     return apply_abstract_transformer(z, fn, **kwargs)
 
 
-def exp(z: HCZ, **kwargs) -> HCZ:
+def exp(z: HCZDense, **kwargs) -> HCZDense:
     fn = partial(
         get_abstract_transformer_from_classical_zonotope,
         classical_zonotope_abstract_transformer=classical_exp,
@@ -71,7 +73,7 @@ def exp(z: HCZ, **kwargs) -> HCZ:
     return apply_abstract_transformer(z, fn, **kwargs)
 
 
-def tanh(z: HCZ, **kwargs) -> HCZ:
+def tanh(z: HCZDense, **kwargs) -> HCZDense:
     fn = partial(
         get_abstract_transformer_from_classical_zonotope,
         classical_zonotope_abstract_transformer=classical_tanh,
@@ -84,7 +86,7 @@ def abstract_from_classical(
     lower: Tensor | float,
     upper: Tensor | float,
     classical_zonotope_abstract_transformer: Callable[[Zonotope], Zonotope],
-) -> HCZ:
+) -> HCZDense:
     c = (lower + upper) / 2
     h1 = get_abstract_transformer_from_classical_zonotope(
         lower, c, classical_zonotope_abstract_transformer
@@ -96,13 +98,13 @@ def abstract_from_classical(
 
 
 def apply_abstract_transformer(
-    z_in: HCZ,
-    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZ],
+    z_in: HCZDense,
+    abs_transformer: Callable[[Tensor | float, Tensor | float], HCZDense],
     **kwargs,
-) -> HCZ:
+) -> HCZDense:
     lower, upper = z_in.concretize(**kwargs)
     lower_flat, upper_flat = lower.reshape(-1), upper.reshape(-1)
-    z_abs = HCZ.empty()
+    z_abs = HCZDense.empty()
 
     for i in range(z_in.N):
         z_abs = z_abs.cartesian_product(abs_transformer(lower_flat[i], upper_flat[i]))
@@ -116,7 +118,7 @@ def apply_abstract_transformer(
     return result.reshape(*z_in.shape)
 
 
-def dot_product(a: HCZ, b: HCZ, pattern: str, **kwargs) -> HCZ:
+def dot_product(a: HCZDense, b: HCZDense, pattern: str, **kwargs) -> HCZDense:
     h1, h2 = a.clone(), b.clone()
 
     dims_a, dims_bc = pattern.split(",")
@@ -157,13 +159,13 @@ def dot_product(a: HCZ, b: HCZ, pattern: str, **kwargs) -> HCZ:
     )
 
 
-def linear(z: HCZ, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZ:
+def linear(z: HCZDense, weight: Float[Tensor, "out in"], bias: Tensor) -> HCZDense:
     return z.einsum(weight, "... in, out in -> ... out") + bias
 
 
 def replace_invalid_values(
-    z: HCZ, replace_value: float, reset_error_terms: bool = True
-) -> HCZ:
+    z: HCZDense, replace_value: float, reset_error_terms: bool = True
+) -> HCZDense:
     result = z.clone()
 
     mask = (z.W_C != z.W_C) | (float("inf") == z.W_C) | (float("-inf") == z.W_C)
@@ -176,7 +178,7 @@ def replace_invalid_values(
     return result
 
 
-def softmax(z: HCZ, masked: bool = True, **kwargs) -> HCZ:
+def softmax(z: HCZDense, masked: bool = True, **kwargs) -> HCZDense:
     a = z.repeat("... -> ... N", N=z.W_C.shape[-1])
     b = a.rearrange("... Ni Nj -> ... Nj Ni")
     z_diff = a - b

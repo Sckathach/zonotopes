@@ -1,8 +1,5 @@
-import math
-import textwrap
 from functools import partial
-from types import EllipsisType
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Self, Tuple
 
 import torch as t
 from einops import einsum, rearrange, repeat
@@ -11,138 +8,51 @@ from torch import Tensor
 from torch.linalg import norm
 
 from zonotope import DEFAULT_DEVICE, DEFAULT_DTYPE
+from zonotope.hcz.base import HCZBase, HCZConfig
 from zonotope.hcz.optimise import optimize_lambda
 from zonotope.utils import get_dim_for_error_terms, get_einops_pattern_for_error_terms
 
 
-class HCZ:
+class HCZDense(HCZBase):
     def __init__(
         self,
-        W_c: Float[Tensor, "..."],
-        W_G: Optional[Float[Tensor, "... I"]] = None,
-        W_Gp: Optional[Float[Tensor, "... Ip"]] = None,
-        W_A: Optional[Float[Tensor, "J I"]] = None,
-        W_Ap: Optional[Float[Tensor, "J Ip"]] = None,
-        W_b: Optional[Float[Tensor, "J"]] = None,
+        W_C: Float[Tensor, "..."],
+        W_G: Optional[Float[Tensor, "I ..."]] = None,
+        W_Gp: Optional[Float[Tensor, "Ip ..."]] = None,
+        W_A: Optional[Float[Tensor, "I J"]] = None,
+        W_Ap: Optional[Float[Tensor, "Ip J"]] = None,
+        W_B: Optional[Float[Tensor, "J"]] = None,
+        config: Optional[HCZConfig] = None,
         clone: bool = True,
+        **kwargs,
     ) -> None:
-        self.W_C: Float[Tensor, "..."] = W_c.clone() if clone else W_c
-
-        if W_G is None or W_G.shape[-1] == 0:  # second condition to reset zeros'shape
-            self.W_G: Float[Tensor, "... I"] = self.zeros(*self.shape, 0)
-        else:
-            self.W_G = W_G.clone() if clone else W_G
-
-        if W_Gp is None or W_Gp.shape[-1] == 0:
-            self.W_Gp: Float[Tensor, "... Ip"] = self.zeros(*self.shape, 0)
-        else:
-            self.W_Gp = W_Gp.clone() if clone else W_Gp
-
-        if W_b is None or W_b.shape[-1] == 0:
-            self.W_B: Float[Tensor, "J"] = self.zeros(0)
-        else:
-            self.W_B = W_b.clone() if clone else W_b
-
-        if W_A is None or W_A.shape[-1] == 0:
-            self.W_A: Float[Tensor, "J I"] = self.zeros(self.J, self.I)
-        else:
-            self.W_A = W_A.clone() if clone else W_A
-
-        if W_Ap is None or W_Ap.shape[-1] == 0:
-            self.W_Ap: Float[Tensor, "J Ip"] = self.zeros(self.J, self.Ip)
-        else:
-            self.W_Ap = W_Ap.clone() if clone else W_Ap
-
-    @property
-    def J(self) -> int:
-        return self.W_B.shape[-1]
-
-    @property
-    def Ip(self) -> int:
-        return self.W_Gp.shape[-1]
-
-    @property
-    def I(self) -> int:  # noqa: E743
-        return self.W_G.shape[-1]
-
-    @property
-    def N(self) -> int:
-        """Total number of variables in the zonotope."""
-        return math.prod(self.W_C.shape)
-
-    @property
-    def shape(self) -> t.Size:
-        """Shape of the center tensor."""
-        return self.W_C.shape
-
-    @property
-    def device(self) -> t.device:
-        """Device of the tensors."""
-        return self.W_C.device
-
-    @property
-    def dtype(self) -> t.dtype:
-        """Data type of the tensors."""
-        return self.W_C.dtype
-
-    def zeros(self, *shape, **kwargs) -> Float[Tensor, "..."]:
-        kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.zeros(*shape, **kwargs)  # type: ignore
-
-    def ones(self, *shape, **kwargs) -> Float[Tensor, "..."]:
-        kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.ones(*shape, **kwargs)  # type: ignore
-
-    def eye(self, *shape, **kwargs) -> Float[Tensor, "..."]:
-        kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.eye(*shape, **kwargs)  # type: ignore
-
-    def as_tensor(self, obj: Any) -> Tensor:
-        return t.as_tensor(obj, dtype=self.dtype, device=self.device)
-
-    def display_shapes(self) -> None:
-        print(
-            textwrap.dedent(f"""
-                c: {self.W_C.shape}
-                G: {self.W_G.shape}
-                G': {self.W_Gp.shape}
-                A: {self.W_A.shape}
-                A': {self.W_Ap.shape}
-                b: {self.W_B.shape}
-            """)
-        )
-
-    def display_weights(self) -> str:
-        return textwrap.dedent(f"""
-            c: {self.W_C}
-            G: {self.W_G}
-            G': {self.W_Gp}
-            A: {self.W_A}
-            A': {self.W_Ap}
-            b: {self.W_B}
-        """)
+        super().__init__(W_C, W_G, W_Gp, W_A, W_Ap, W_B, config, clone, **kwargs)
 
     @classmethod
     def from_values(
         cls,
-        W_c: Any,
+        W_C: Any,
         W_G: Any = None,
         W_Gp: Any = None,
         W_A: Any = None,
         W_Ap: Any = None,
-        W_b: Any = None,
+        W_B: Any = None,
         dtype: t.dtype = DEFAULT_DTYPE,
         device: t.device = DEFAULT_DEVICE,
-    ) -> "HCZ":
+        config: Optional[HCZConfig] = None,
+        **kwargs,
+    ) -> Self:
         as_tensor = partial(t.as_tensor, dtype=dtype, device=device)
 
         return cls(
-            W_c=as_tensor(W_c),
+            W_c=as_tensor(W_C),
             W_G=as_tensor(W_G) if W_G is not None else None,
             W_Gp=as_tensor(W_Gp) if W_Gp is not None else None,
             W_A=as_tensor(W_A) if W_A is not None else None,
             W_Ap=as_tensor(W_Ap) if W_Ap is not None else None,
-            W_b=as_tensor(W_b) if W_b is not None else None,
+            W_b=as_tensor(W_B) if W_B is not None else None,
+            config=config,
+            **kwargs,
         )
 
     @classmethod
@@ -152,7 +62,7 @@ class HCZ:
         upper: Any,
         dtype: t.dtype = DEFAULT_DTYPE,
         device: t.device = DEFAULT_DEVICE,
-    ) -> "HCZ":
+    ) -> "HCZDense":
         lower_ = t.as_tensor(lower, dtype=dtype, device=device)
         upper_ = t.as_tensor(upper, dtype=dtype, device=device)
 
@@ -166,29 +76,7 @@ class HCZ:
         radius_expanded = t.zeros(radius_flat.shape[0], N, dtype=dtype, device=device)
         radius_expanded[radius_flat != 0] = radius_eye_non_zero
         radius_reshaped = radius_expanded.reshape(*center.shape, N)
-        return cls.from_values(W_c=center, W_G=radius_reshaped)
-
-    @classmethod
-    def empty(cls, **kwargs) -> "HCZ":
-        return cls.from_values(W_c=[], **kwargs)
-
-    def clone(
-        self,
-        W_c: Optional[Float[Tensor, "..."]] = None,
-        W_G: Optional[Float[Tensor, "... I"]] = None,
-        W_Gp: Optional[Float[Tensor, "... Ip"]] = None,
-        W_A: Optional[Float[Tensor, "J I"]] = None,
-        W_Ap: Optional[Float[Tensor, "J Ip"]] = None,
-        W_b: Optional[Float[Tensor, "J"]] = None,
-    ) -> "HCZ":
-        return HCZ(
-            W_c=self.W_C if W_c is None else W_c,
-            W_G=self.W_G if W_G is None else W_G,
-            W_Gp=self.W_Gp if W_Gp is None else W_Gp,
-            W_A=self.W_A if W_A is None else W_A,
-            W_Ap=self.W_Ap if W_Ap is None else W_Ap,
-            W_b=self.W_B if W_b is None else W_b,
-        )
+        return cls.from_values(W_C=center, W_G=radius_reshaped)
 
     def concretize(self, **kwargs) -> Tuple[Float[Tensor, "..."], Float[Tensor, "..."]]:
         """
@@ -199,6 +87,7 @@ class HCZ:
                 self.zeros(*self.shape, self.J)
             )
 
+        kwargs = {"lr": self.config.lr, "n_steps": self.config.n_steps} | kwargs
         lambda_lower = optimize_lambda(
             (*self.shape, self.J),
             self.dual_lower,
@@ -248,13 +137,8 @@ class HCZ:
             )
         )
 
-    def add(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
-        if isinstance(other, HCZ):
-            if self.N == 0:
-                return other
-            if other.N == 0:
-                return self
-
+    def add(self, other: Self | float | int | Tensor) -> Self:  # type: ignore
+        if isinstance(other, HCZDense):
             return self.clone(
                 W_c=self.W_C + other.W_C,
                 W_G=self.cat([self.W_G, other.W_G]),
@@ -271,7 +155,7 @@ class HCZ:
 
         return self.clone(W_c=self.W_C + other)
 
-    def mul(self, other: Union[float, int, Tensor]) -> "HCZ":
+    def mul(self, other: float | int | Tensor) -> Self:
         if isinstance(other, Tensor):
             return self.clone(
                 W_c=self.W_C * other,
@@ -285,20 +169,11 @@ class HCZ:
                 W_Gp=self.W_Gp * other,
             )
 
-    def sub(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
-        return self + (-1 * other)
-
-    def rsub(self, other: Union["HCZ", float, int, Tensor]) -> "HCZ":
-        return other + (-1 * self)
-
-    def div(self, other: Union[float, int, Tensor]) -> "HCZ":
-        return self * (1 / other)
-
     def intersect(
-        self, other: "HCZ", r: Optional[Float[Tensor, "N2 N1"]] = None, **kwargs
-    ) -> "HCZ":
+        self, other: Self, r: Optional[Float[Tensor, "N2 N1"]] = None, **kwargs
+    ) -> Self:
         if self.N == 0 or other.N == 0:
-            return HCZ.empty()
+            return self.empty_from_self()
 
         w_c_flat = self.W_C.clone().reshape(-1)
         w_g_flat = self.W_G.clone().reshape(self.N, self.I)
@@ -332,7 +207,7 @@ class HCZ:
             W_b=self.cat(*new_b),  # type: ignore
         )
         if result.is_empty(**kwargs):
-            return HCZ.empty()
+            return self.empty_from_self()
 
         return result
 
@@ -340,7 +215,7 @@ class HCZ:
         lower, upper = self.concretize(**kwargs)
         return bool(t.any(lower > upper).item())
 
-    def cartesian_product(self, other: "HCZ") -> "HCZ":
+    def cartesian_product(self, other: Self) -> Self:
         return self.clone(
             W_c=self.cat([self.W_C], [other.W_C]),
             W_G=self.cat(
@@ -357,7 +232,7 @@ class HCZ:
             W_b=self.cat([self.W_B], [other.W_B]),
         )
 
-    def union(self, other: "HCZ") -> "HCZ":
+    def union(self, other: Self) -> Self:
         if self.N == 0:
             return other
 
@@ -453,7 +328,7 @@ class HCZ:
             ),
         )
 
-    def rearrange(self, pattern: str, **kwargs) -> "HCZ":
+    def rearrange(self, pattern: str, **kwargs) -> Self:
         """Einops rearrange"""
         error_pattern = get_einops_pattern_for_error_terms(pattern)
         return self.clone(
@@ -462,7 +337,7 @@ class HCZ:
             W_Gp=rearrange(self.W_Gp, error_pattern, **kwargs),
         )
 
-    def repeat(self, pattern: str, **kwargs) -> "HCZ":
+    def repeat(self, pattern: str, **kwargs) -> Self:
         """Einops repeat"""
         error_pattern = get_einops_pattern_for_error_terms(pattern)
         return self.clone(
@@ -471,7 +346,7 @@ class HCZ:
             W_Gp=repeat(self.W_Gp, error_pattern, **kwargs),
         )
 
-    def einsum(self, other: Tensor, pattern: str, **kwargs) -> "HCZ":
+    def einsum(self, other: Tensor, pattern: str, **kwargs) -> Self:
         """Einops einsum"""
         error_pattern = get_einops_pattern_for_error_terms(pattern)
         return self.clone(
@@ -480,7 +355,7 @@ class HCZ:
             W_Gp=einsum(self.W_Gp, other, error_pattern, **kwargs),
         )
 
-    def sum(self, dim: int, **kwargs) -> "HCZ":
+    def sum(self, dim: int, **kwargs) -> Self:
         error_dim = get_dim_for_error_terms(dim)
         return self.clone(
             W_c=self.W_C.sum(dim=dim, **kwargs),
@@ -488,7 +363,7 @@ class HCZ:
             W_Gp=self.W_Gp.sum(dim=error_dim, **kwargs) if self.Ip > 0 else None,
         )
 
-    def mean(self, dim: int, **kwargs) -> "HCZ":
+    def mean(self, dim: int, **kwargs) -> Self:
         error_dim = get_dim_for_error_terms(dim)
         return self.clone(
             W_c=self.W_C.mean(dim=dim, **kwargs),
@@ -496,48 +371,11 @@ class HCZ:
             W_Gp=self.W_Gp.mean(dim=error_dim, **kwargs) if self.Ip > 0 else None,
         )
 
-    def reshape(self, *shape) -> "HCZ":
+    def reshape(self, *shape) -> Self:
         return self.clone(
             W_c=self.W_C.reshape(*shape),
             W_G=self.W_G.reshape(*shape, self.I) if self.I > 0 else None,
             W_Gp=self.W_Gp.reshape(*shape, self.Ip) if self.Ip > 0 else None,
-        )
-
-    def cat(
-        self,
-        *elements: List[Tensor | tuple],
-        row_dims: Optional[EllipsisType | int] = None,
-        column_dims: Optional[EllipsisType | int] = None,
-    ) -> Tensor:
-        if len(elements) == 0:
-            raise ValueError("No elements provided in hcz.cat")
-
-        return t.cat(
-            [
-                t.cat(
-                    [self.zeros(*j) if isinstance(j, tuple) else j for j in i],
-                    dim=column_dims if column_dims is not None else -1,
-                )
-                for i in elements
-            ],
-            dim=row_dims if row_dims is not None else 0,
-        )
-
-    def to(
-        self,
-        device: Optional[t.device] = None,
-        dtype: Optional[t.dtype] = None,
-    ) -> "HCZ":
-        """Torch to"""
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        return self.clone(
-            W_c=self.W_C.to(device=device, dtype=dtype),
-            W_G=self.W_G.to(device=device, dtype=dtype),
-            W_Gp=self.W_Gp.to(device=device, dtype=dtype),
-            W_A=self.W_A.to(device=device, dtype=dtype),
-            W_Ap=self.W_Ap.to(device=device, dtype=dtype),
-            W_b=self.W_B.to(device=self.device, dtype=self.dtype),
         )
 
     def contiguous(self) -> None:
@@ -549,7 +387,7 @@ class HCZ:
         self.W_Ap.contiguous()
         self.W_B.contiguous()
 
-    def __getitem__(self, key) -> "HCZ":
+    def __getitem__(self, key) -> Self:
         if isinstance(key, tuple):
             error_key = (*key, slice(None, None, None))
         else:
@@ -570,16 +408,3 @@ class HCZ:
         self.W_C[key] = value
         self.W_Gp[error_key] = value
         self.W_G[error_key] = value
-
-    def __len__(self) -> int:
-        return self.N
-
-    __add__ = add
-    __radd__ = add
-    __mul__ = mul
-    __rmul__ = mul
-    __sub__ = sub
-    __rsub__ = rsub
-    __div__ = div
-    __repr__ = display_weights
-    __str__ = display_weights
