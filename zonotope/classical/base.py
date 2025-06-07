@@ -1,4 +1,5 @@
 import math
+from abc import ABC, abstractmethod
 from types import EllipsisType
 from typing import Any, List, Optional, Self
 
@@ -7,7 +8,7 @@ from jaxtyping import Float
 from torch import Tensor
 
 
-class ZonotopeBase:
+class ZonotopeBase(ABC):
     W_C: Float[Tensor, "..."]
     W_G: Float[Tensor, "... I"]
 
@@ -33,28 +34,38 @@ class ZonotopeBase:
         """Data type of the tensors."""
         return self.W_C.dtype
 
-    def zeros(self, *shape, **kwargs) -> Float[Tensor, "..."]:
+    def zeros(self, *shape, **kwargs) -> Tensor:
         kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.zeros(*shape, **kwargs)  # type: ignore
+        return t.zeros(*shape, **kwargs)
 
-    def ones(self, *shape, **kwargs) -> Float[Tensor, "..."]:
+    def ones(self, *shape, **kwargs) -> Tensor:
         kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.ones(*shape, **kwargs)  # type: ignore
+        return t.ones(*shape, **kwargs)
 
-    def eye(self, *shape, **kwargs) -> Float[Tensor, "..."]:
+    def eye(self, *shape, **kwargs) -> Tensor:
         kwargs = {"device": self.device, "dtype": self.dtype} | kwargs
-        return t.eye(*shape, **kwargs)  # type: ignore
+        return t.eye(*shape, **kwargs)
 
-    def as_tensor(self, obj: Any) -> Tensor:
-        return t.as_tensor(obj, dtype=self.dtype, device=self.device)
+    def as_tensor(self, obj: Any, **kwargs) -> Tensor:
+        kwargs = {"dtype": self.dtype, "device": self.device} | kwargs
+        result = t.as_tensor(obj).to(**kwargs)
+        return result
 
-    def as_sparse_tensor(self, obj: Any) -> Tensor:
-        return t.as_tensor(obj, dtype=self.dtype, device=self.device).to_sparse_coo()
+    def as_sparse_tensor(self, obj: Any, **kwargs) -> Tensor:
+        kwargs = {"dtype": self.dtype, "device": self.device} | kwargs
+        result = t.as_tensor(obj).to(**kwargs).to_sparse_coo()
+        return result
 
-    def add(self, other: Self | float | int | Tensor) -> Self:
+    @abstractmethod
+    def add(self, other):
         raise NotImplementedError
 
-    def mul(self, other: float | int | Tensor) -> Self:
+    @abstractmethod
+    def mul(self, other):
+        raise NotImplementedError
+
+    @abstractmethod
+    def equal(self, other: Any) -> bool:
         raise NotImplementedError
 
     def sub(self, other: Self | float | int | Tensor) -> Self:
@@ -96,10 +107,21 @@ class ZonotopeBase:
     def __len__(self) -> int:
         return self.N
 
-    __add__ = add
-    __radd__ = add
-    __mul__ = mul
-    __rmul__ = mul
+    def __add__(self, other):
+        return self.add(other)
+
+    def __radd__(self, other):
+        return self.add(other)
+
+    def __mul__(self, other):
+        return self.mul(other)
+
+    def __rmul__(self, other):
+        return self.mul(other)
+
+    def __eq__(self, other: Any) -> bool:
+        return self.equal(other)
+
     __sub__ = sub
     __rsub__ = rsub
-    __div__ = div
+    __truediv__ = div

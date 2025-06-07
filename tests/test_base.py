@@ -1,399 +1,388 @@
 """
-! WARNING: LLM generated !
-
-(but tested)
+! Tests written by LLM !
+(but verified (slightly))
 """
 
 import pytest
 import torch as t
-from einops import einsum
 
-from zonotope.classical.z import Zonotope, dual_norm
-
-
-@pytest.fixture
-def device():
-    """Fixture for device to run tests on."""
-    return t.device("cuda" if t.cuda.is_available() else "cpu")
+from tests.utils import check_bounds
+from zonotope import DEFAULT_DEVICE, DEFAULT_DTYPE
+from zonotope.classical.z import Zonotope
 
 
 @pytest.fixture
-def simple_zonotope(device):
-    """Fixture for a simple 2D zonotope with both types of error terms."""
-    center = t.tensor([1.0, 2.0], device=device)
-    infinity_terms = t.tensor([[0.1, 0.2], [0.3, 0.4]], device=device)
-    special_terms = t.tensor([[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]], device=device)
+def z_no_noise():
+    return Zonotope.from_values([0, 1, -2])
 
-    return Zonotope(
-        W_C=center,
-        W_G=infinity_terms,
-        special_terms=special_terms,
-        special_norm=2,
+
+@pytest.fixture
+def z_simple_noise():
+    return Zonotope.from_values([0, 1, -2], [[1, 1, 0], [1, 0, 0], [0, 0, 0]])
+
+
+@pytest.fixture
+def z_simple_noise_2():
+    return Zonotope.from_values(
+        [3, 0, -0.001], [[1, -3, 0, 1], [1, 0, 0, -2], [0, 0, 0, 5]]
     )
 
 
 @pytest.fixture
-def batch_zonotope(device):
-    """Fixture for a batched zonotope (3D) with both types of error terms."""
-    center = t.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], device=device)
-    infinity_terms = t.tensor(
-        [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]], [[0.9, 1.0], [1.1, 1.2]]],
-        device=device,
-    )
-    special_terms = t.tensor(
-        [
-            [[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]],
-            [[0.07, 0.08, 0.09], [0.10, 0.11, 0.12]],
-            [[0.13, 0.14, 0.15], [0.16, 0.17, 0.18]],
-        ],
-        device=device,
-    )
-
-    return Zonotope(
-        W_C=center,
-        W_G=infinity_terms,
-        special_terms=special_terms,
-        special_norm=2,
-    )
-
-
-@pytest.fixture
-def zonotope_no_inf(device):
-    """Fixture for a zonotope with only special error terms."""
-    center = t.tensor([1.0, 2.0], device=device)
-    special_terms = t.tensor([[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]], device=device)
-
-    return Zonotope(W_C=center, special_terms=special_terms, special_norm=2)
-
-
-@pytest.fixture
-def zonotope_no_special(device):
-    """Fixture for a zonotope with only infinity error terms."""
-    center = t.tensor([1.0, 2.0], device=device)
-    infinity_terms = t.tensor([[0.1, 0.2], [0.3, 0.4]], device=device)
-
-    return Zonotope(W_C=center, W_G=infinity_terms, special_norm=2)
+def z_2d():
+    return Zonotope.from_values([[1, 2], [3, 4]], [[[1, 0], [0, 1]], [[0, 1], [1, 0]]])
 
 
 class TestZonotope:
-    """Tests for the Zonotope class."""
+    def test_initialization(self, z_no_noise):
+        z = Zonotope(t.tensor([0, 1, -2], device=DEFAULT_DEVICE, dtype=DEFAULT_DTYPE))
+        assert t.allclose(z_no_noise.W_C, z.W_C)
 
-    def test_initialization(self, device):
-        """Test basic initialization with different combinations of parameters."""
-        # Test with all parameters
-        center = t.tensor([1.0, 2.0], device=device)
-        infinity_terms = t.tensor([[0.1, 0.2], [0.3, 0.4]], device=device)
-        special_terms = t.tensor([[0.01, 0.02], [0.03, 0.04]], device=device)
-
-        z = Zonotope(
-            W_C=center,
-            W_G=infinity_terms,
-            special_terms=special_terms,
-            special_norm=2,
+    def test_initialization_with_clone_false(self):
+        W_C = t.tensor([1, 2, 3], dtype=DEFAULT_DTYPE, device=DEFAULT_DEVICE)
+        W_G = t.tensor(
+            [[1, 0], [0, 1], [1, 1]], dtype=DEFAULT_DTYPE, device=DEFAULT_DEVICE
         )
+        z = Zonotope(W_C, W_G, clone=False)
 
-        assert t.allclose(z.W_C, center)
-        assert t.allclose(z.W_G, infinity_terms)
-        assert t.allclose(z.W_Es, special_terms)
-        assert z.p == 2
-        assert z.q == 2  # Dual of 2-norm is 2
+        # Modify original tensors
+        W_C[0] = 999
+        W_G[0, 0] = 999
 
-        # Test with only center
-        z = Zonotope(W_C=center)
-        assert t.allclose(z.W_C, center)
-        assert z.Ei == 0
-        assert z.Es == 0
+        # Should affect the zonotope since clone=False
+        assert z.W_C[0] == 999
+        assert z.W_G[0, 0] == 999
 
-        # Test with non-default p-norm
-        z = Zonotope(W_C=center, special_norm=3)
-        assert z.p == 3
-        assert z.q == 1.5  # Dual of 3-norm is 3/2
+    def test_initialization_none_W_G(self):
+        z = Zonotope(t.tensor([1, 2, 3]))
+        assert z.W_G.shape == (3, 0)
+        assert z.I == 0
 
-        # Test without cloning
-        z = Zonotope(W_C=center, clone=False)
-        assert z.W_C is center  # Same object, not a clone
+    def test_from_values(self):
+        z = Zonotope.from_values([1, 2, 3], [[1, 0], [0, 1], [1, 1]])
+        z.assert_equal(W_C=[1, 2, 3], W_G=[[1, 0], [0, 1], [1, 1]])
 
-    def test_properties(self, simple_zonotope):
-        """Test all property accessors."""
-        z = simple_zonotope
+    def test_from_values_custom_device_dtype(self):
+        device = t.device("cpu")
+        dtype = t.float64
 
-        # Basic properties
-        assert z.Ei + z.Es == z.E
-        assert z.Ei == 2
-        assert z.Es == 3
-        assert z.N == 2
-        assert z.shape == t.Size([2])
-        assert z.dtype == t.float32
-
-        # Ensure device is correct
-        assert z.device == z.W_C.device
-
-    def test_from_values(self, device):
-        """Test the from_values class method."""
-        # Test with list inputs
         z = Zonotope.from_values(
-            W_C=[1.0, 2.0],
-            W_G=[[0.1, 0.2], [0.3, 0.4]],
-            special_terms=[[0.01, 0.02], [0.03, 0.04]],
-            special_norm=2,
+            [1, 2, 3], [[1, 0], [0, 1], [1, 1]], device=device, dtype=dtype
         )
+        assert z.device == device
+        assert z.dtype == dtype
 
-        assert z.W_C.device.type == "cpu"
-        assert z.W_C.shape == t.Size([2])
-        assert z.W_G.shape == t.Size([2, 2])
-        assert z.W_Es.shape == t.Size([2, 2])
+    def test_from_bounds(self):
+        lower = t.tensor([1, 2, 3])
+        upper = t.tensor([3, 4, 5])
+        z = Zonotope.from_bounds(lower, upper)
 
-        # Test with numpy arrays if available
-        try:
-            import numpy as np
+        z.assert_equal(W_C=[2, 3, 4], W_G=[[1], [1], [1]])
 
-            center_np = np.array([1.0, 2.0])
-            z = Zonotope.from_values(W_C=center_np)
-            assert isinstance(z.W_C, t.Tensor)
-            assert z.W_C.shape == t.Size([2])
-        except ImportError:
-            pass
+    def test_properties(self, z_simple_noise, z_2d):
+        # Test I property
+        assert z_simple_noise.I == 3
+        assert z_2d.I == 2
 
-    def test_from_bounds(self, device):
-        """Test the from_bounds class method."""
-        lower = t.tensor([0.0, 1.0], device=device)
-        upper = t.tensor([2.0, 3.0], device=device)
+        # Test N property
+        assert z_simple_noise.N == 3
+        assert z_2d.N == 4
 
-        z = Zonotope.from_bounds(lower, upper, special_norm=2)
+        # Test shape property
+        assert z_simple_noise.shape == t.Size([3])
+        assert z_2d.shape == t.Size([2, 2])
 
-        # Check center is midpoint of bounds
-        assert t.allclose(z.W_C, t.tensor([1.0, 2.0], device=device))
+        # Test device and dtype
+        assert z_simple_noise.device == DEFAULT_DEVICE
+        assert z_simple_noise.dtype == DEFAULT_DTYPE
 
-        # Check radius is half the difference
-        expected_radius = t.tensor([[1.0], [1.0]], device=device)
-        assert t.allclose(z.W_G, expected_radius)
+    def test_helper_methods(self, z_simple_noise):
+        kwargs = {"device": z_simple_noise.device, "dtype": z_simple_noise.dtype}
+        # Test zeros
+        zeros = z_simple_noise.zeros(2, 3)
+        assert zeros.shape == (2, 3)
+        assert zeros.device == z_simple_noise.device
+        assert zeros.dtype == z_simple_noise.dtype
+        assert t.allclose(zeros, t.zeros(2, 3, **kwargs))
 
-        # No special terms by default
-        assert z.Es == 0
+        # Test ones
+        ones = z_simple_noise.ones(2, 2)
+        assert ones.shape == (2, 2)
+        assert t.allclose(ones, t.ones(2, 2, **kwargs))
 
-    def test_concretize(self, simple_zonotope):
-        """Test the concretize method."""
-        z = simple_zonotope
-        lower, upper = z.concretize()
+        # Test eye
+        eye = z_simple_noise.eye(3)
+        assert eye.shape == (3, 3)
+        assert t.allclose(eye, t.eye(3, **kwargs))
 
-        # Calculate expected bounds manually
-        center = z.W_C
-        inf_contribution = t.sum(t.abs(z.W_Ei), dim=1)
-        special_contribution = t.linalg.norm(z.W_Es, ord=z.q, dim=1)
+        # Test as_tensor
+        tensor = z_simple_noise.as_tensor([1, 2, 3])
+        assert tensor.device == z_simple_noise.device
+        assert tensor.dtype == z_simple_noise.dtype
 
-        expected_lower = center - inf_contribution - special_contribution
-        expected_upper = center + inf_contribution + special_contribution
+    def test_concretization_1(self, z_simple_noise):
+        check_bounds(z_simple_noise, [-2, 0, -2], [2, 2, -2])
 
-        assert t.allclose(lower, expected_lower)
-        assert t.allclose(upper, expected_upper)
+    def test_concretization_no_noise(self, z_no_noise):
+        lower, upper = z_no_noise.concretize()
+        assert t.allclose(lower, z_no_noise.W_C)
+        assert t.allclose(upper, z_no_noise.W_C)
 
-    def test_expand_infinity_error_terms(self, simple_zonotope):
-        """Test expanding infinity error terms."""
-        z = simple_zonotope.clone()
-        original_ei = z.Ei
-
-        # Expand to larger size
-        z.expand_infinity_error_terms(5)
-        assert z.Ei == 5
-
-        # First original_ei columns should match original tensor
-        assert t.allclose(z.W_Ei[:, :original_ei], simple_zonotope.W_Ei)
-
-        # New columns should be zeros
+    def test_expand_infinity_error_terms(self, z_simple_noise):
+        original_I = z_simple_noise.I
+        z_simple_noise.expand_infinity_error_terms(5)
+        assert z_simple_noise.I == 5
+        # Original terms should be preserved
         assert t.allclose(
-            z.W_Ei[:, original_ei:], t.zeros(2, 5 - original_ei, device=z.device)
+            z_simple_noise.W_G[:, :original_I],
+            z_simple_noise.as_tensor([[1, 1, 0], [1, 0, 0], [0, 0, 0]]),
+        )
+        # New terms should be zero
+        assert t.allclose(
+            z_simple_noise.W_G[:, original_I:], z_simple_noise.zeros(3, 2)
         )
 
-        # Expanding to smaller size should have no effect
-        z.expand_infinity_error_terms(3)
-        assert z.Ei == 5  # Still 5, not reduced
+    def test_clone(self, z_simple_noise):
+        z = z_simple_noise.clone()
+        z.W_C[0] = 33
+        z.W_G[0] = z.as_tensor([3, 3, 3])
+        z_simple_noise.assert_equal(
+            W_C=[0, 1, -2], W_G=[[1, 1, 0], [1, 0, 0], [0, 0, 0]]
+        )
 
-    def test_clone(self, simple_zonotope):
-        """Test cloning a zonotope."""
-        z = simple_zonotope
-        z_clone = z.clone()
+    def test_clone_with_custom_values(self, z_simple_noise):
+        new_W_C = t.tensor([10, 20, 30], dtype=DEFAULT_DTYPE)
+        new_W_G = t.tensor([[1, 2], [3, 4], [5, 6]], dtype=DEFAULT_DTYPE)
 
-        # Should have same values but different tensor objects
-        assert t.allclose(z_clone.W_C, z.W_C)
-        assert t.allclose(z_clone.W_Ei, z.W_Ei)
-        assert t.allclose(z_clone.W_Es, z.W_Es)
-        assert z_clone.p == z.p
+        z = z_simple_noise.clone(W_C=new_W_C, W_G=new_W_G)
+        assert t.allclose(z.W_C, new_W_C)
+        assert t.allclose(z.W_G, new_W_G)
 
-        # Modifying clone should not affect original
-        z_clone.W_C[0] = 99.0
-        assert not t.allclose(z_clone.W_C, z.W_C)
+    def test_add_1(self, z_no_noise, z_simple_noise):
+        a = z_no_noise + z_simple_noise
+        z_no_noise.W_C[0] = 33
+        a.assert_equal(W_C=[0, 2, -4], W_G=[[1, 1, 0], [1, 0, 0], [0, 0, 0]])
 
-    def test_add(self, simple_zonotope):
-        """Test adding zonotopes and scalars."""
-        z = simple_zonotope
+    def test_add_2(self, z_simple_noise):
+        a = z_simple_noise + 33 + z_simple_noise
+        z_simple_noise.W_C[0] = -33
+        a.assert_equal(W_C=[33, 35, 29], W_G=[[2, 2, 0], [2, 0, 0], [0, 0, 0]])
 
-        # Test adding a scalar
-        result = z + 1.0
-        assert t.allclose(result.W_C, z.W_C + 1.0)
-        assert t.allclose(result.W_Ei, z.W_Ei)  # Error terms unchanged
-        assert t.allclose(result.W_Es, z.W_Es)  # Error terms unchanged
+    def test_add_3(self, z_simple_noise, z_simple_noise_2):
+        a = z_simple_noise + z_simple_noise_2
+        a.assert_equal(
+            W_C=[3, 1, -2.001], W_G=[[2, -2, 0, 1], [2, 0, 0, -2], [0, 0, 0, 5]]
+        )
 
-        # Test adding another zonotope
-        z2 = z.clone()
-        result = z + z2
-        assert t.allclose(result.W_C, z.W_C + z2.W_C)
-        assert t.allclose(result.W_Ei, z.W_Ei + z2.W_Ei)
-        assert t.allclose(result.W_Es, z.W_Es + z2.W_Es)
+    def test_add_tensor(self, z_simple_noise):
+        tensor_add = z_simple_noise.as_tensor([1, 2, 3])
+        result = z_simple_noise + tensor_add
+        expected_W_C = z_simple_noise.W_C + tensor_add
+        result.assert_equal(W_C=expected_W_C, W_G=z_simple_noise.W_G)
 
-        # Test right addition with scalar
-        result = 2.0 + z
-        assert t.allclose(result.W_C, 2.0 + z.W_C)
+    def test_radd(self, z_simple_noise):
+        result = 5 + z_simple_noise
+        expected_W_C = z_simple_noise.W_C + 5
+        result.assert_equal(W_C=expected_W_C, W_G=z_simple_noise.W_G)
 
-    def test_add_mismatched_error_terms(self, simple_zonotope, zonotope_no_special):
-        """Test adding zonotopes with different numbers of error terms."""
+    def test_sub_1(self, z_no_noise, z_simple_noise):
+        a = z_no_noise - z_simple_noise
+        z_no_noise.W_C[0] = 33
+        a.assert_equal(W_C=[0, 0, 0], W_G=[[-1, -1, 0], [-1, 0, 0], [0, 0, 0]])
+
+    def test_sub_scalar(self, z_simple_noise):
+        result = z_simple_noise - 5
+        expected_W_C = z_simple_noise.W_C - 5
+        result.assert_equal(W_C=expected_W_C, W_G=z_simple_noise.W_G)
+
+    def test_rsub(self, z_simple_noise):
+        result = 5 - z_simple_noise
+        expected_W_C = 5 - z_simple_noise.W_C
+        expected_W_G = -z_simple_noise.W_G
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_mul_scalar(self, z_simple_noise):
+        result = z_simple_noise * 2
+        expected_W_C = z_simple_noise.W_C * 2
+        expected_W_G = z_simple_noise.W_G * 2
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_mul_tensor(self, z_simple_noise):
+        tensor_mul = z_simple_noise.as_tensor([2, 3, 4])
+        result = z_simple_noise * tensor_mul
+        expected_W_C = z_simple_noise.W_C * tensor_mul
+        expected_W_G = z_simple_noise.W_G * tensor_mul.unsqueeze(-1)
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_rmul(self, z_simple_noise):
+        result = 3 * z_simple_noise
+        expected_W_C = z_simple_noise.W_C * 3
+        expected_W_G = z_simple_noise.W_G * 3
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_div(self, z_simple_noise):
+        result = z_simple_noise / 2
+        expected_W_C = z_simple_noise.W_C / 2
+        expected_W_G = z_simple_noise.W_G / 2
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_sample_point_no_noise(self, z_no_noise):
+        samples = z_no_noise.sample_point(n_samples=10)
+        assert samples.shape == (10, 3)
+        # All samples should be equal to W_C since there's no noise
+        for i in range(10):
+            assert t.allclose(samples[i], z_no_noise.W_C)
+
+    def test_sample_point_with_noise(self, z_simple_noise):
+        samples = z_simple_noise.sample_point(n_samples=100)
+        assert samples.shape == (100, 3)
+
+        # Check that samples are within bounds
+        lower, upper = z_simple_noise.concretize()
+        assert t.all(samples >= lower - 1e-6)
+        assert t.all(samples <= upper + 1e-6)
+
+    def test_sample_point_binary_weights(self, z_simple_noise):
+        samples = z_simple_noise.sample_point(n_samples=100, use_binary_weights=True)
+        assert samples.shape == (100, 3)
+
+        # With binary weights, samples should be at vertices of the zonotope
+        lower, upper = z_simple_noise.concretize()
+        assert t.all(samples >= lower - 1e-6)
+        assert t.all(samples <= upper + 1e-6)
+
+    def test_rearrange(self, z_2d):
+        result = z_2d.rearrange("h w -> (h w)")
+        assert result.shape == t.Size([4])
+        assert result.W_G.shape == (4, 2)
+
+    def test_repeat(self, z_simple_noise):
+        result = z_simple_noise.repeat("n -> n 2")
+        assert result.shape == t.Size([3, 2])
+        assert result.W_G.shape == (3, 2, 3)
+
+    def test_einsum(self, z_2d):
+        matrix = z_2d.as_tensor([[1, 2], [3, 4]])
+        result = z_2d.einsum(matrix, "i j, j k -> i k")
+        result.assert_equal(
+            W_C=[[7.0, 10.0], [15.0, 22.0]],
+            W_G=[[[1.0, 3.0], [2.0, 4.0]], [[3.0, 1.0], [4.0, 2.0]]],
+        )
+
+    def test_sum(self, z_2d):
+        result = z_2d.sum(dim=0)
+        assert result.shape == t.Size([2])
+        expected_W_C = z_2d.W_C.sum(dim=0)
+        expected_W_G = z_2d.W_G.sum(dim=0)
+        result.assert_equal(W_C=expected_W_C, W_G=expected_W_G)
+
+    def test_sum_no_noise(self, z_no_noise):
+        # Reshape to 2D for testing
+        z_2d_no_noise = z_no_noise.rearrange("(h w) -> h w", h=1, w=3)
+        result = z_2d_no_noise.sum(dim=1)
+        assert result.shape == t.Size([1])
+
+    def test_to_device_dtype(self, z_simple_noise):
+        device = t.device("cpu")
+        dtype = t.float64
+
+        result = z_simple_noise.to(device=device, dtype=dtype)
+        assert result.device == device
+        assert result.dtype == dtype
+
+    def test_contiguous(self, z_simple_noise):
+        # This method doesn't return anything, just ensures tensors are contiguous
+        z_simple_noise.contiguous()
+        assert z_simple_noise.W_C.is_contiguous()
+        assert z_simple_noise.W_G.is_contiguous()
+
+    def test_getitem_single_index(self, z_simple_noise):
+        result = z_simple_noise[1]
+        assert result.W_C.shape == t.Size([])
+        assert result.W_G.shape == t.Size([3])
+        assert t.allclose(result.W_C, z_simple_noise.W_C[1])
+        assert t.allclose(result.W_G, z_simple_noise.W_G[1])
+
+    def test_getitem_slice(self, z_simple_noise):
+        result = z_simple_noise[0:2]
+        assert result.W_C.shape == t.Size([2])
+        assert result.W_G.shape == t.Size([2, 3])
+        assert t.allclose(result.W_C, z_simple_noise.W_C[0:2])
+        assert t.allclose(result.W_G, z_simple_noise.W_G[0:2])
+
+    def test_getitem_2d(self, z_2d):
+        result = z_2d[0, 1]
+        assert result.W_C.shape == t.Size([])
+        assert result.W_G.shape == t.Size([2])
+
+    def test_setitem(self, z_simple_noise):
+        z = z_simple_noise.clone()
+        z[0] = 99
+        assert z.W_C[0] == 99
+        assert z.W_G[0].sum() == 99 * 3  # All error terms set to 99
+
+    def test_assert_equal_success(self, z_simple_noise):
+        # Should not raise any exception
+        z_simple_noise.assert_equal(
+            W_C=[0, 1, -2], W_G=[[1, 1, 0], [1, 0, 0], [0, 0, 0]]
+        )
+
+    def test_assert_equal_failure(self, z_simple_noise):
         with pytest.raises(AssertionError):
-            # Should fail with different Es
-            _ = simple_zonotope + zonotope_no_special
+            z_simple_noise.assert_equal(W_C=[1, 1, -2])
 
-    def test_einsum(self, simple_zonotope, device):
-        """Test multiplication with scalars and tensors."""
-        z = simple_zonotope
+    def test_equal_same_zonotope(self, z_simple_noise):
+        z_copy = z_simple_noise.clone()
+        assert z_simple_noise.equal(z_copy)
+        assert z_simple_noise == z_copy
 
-        # Test scalar multiplication
-        result = z * 2.0
-        assert t.allclose(result.W_C, z.W_C * 2.0)
-        assert t.allclose(result.W_Ei, z.W_Ei * 2.0)
-        assert t.allclose(result.W_Es, z.W_Es * 2.0)
+    def test_equal_different_zonotope(self, z_simple_noise, z_simple_noise_2):
+        assert not z_simple_noise.equal(z_simple_noise_2)
+        assert z_simple_noise != z_simple_noise_2
 
-        # Test right multiplication
-        result = 3.0 * z
-        assert t.allclose(result.W_C, 3.0 * z.W_C)
+    def test_equal_non_zonotope(self, z_simple_noise):
+        assert not z_simple_noise.equal("not a zonotope")
+        assert z_simple_noise != "not a zonotope"
 
-        # Test tensor multiplication with einsum pattern
-        weights = t.tensor([[0.5, 0.5], [0.5, 0.5]], device=device)
-        pattern = "d, b d -> b"
+    def test_len(self, z_simple_noise, z_2d):
+        assert len(z_simple_noise) == 3
+        assert len(z_2d) == 4
 
-        result = z.einsum(weights, pattern)
+    def test_cat_1(self, z_simple_noise):
+        # Test the inherited cat method
+        tensor1 = t.ones(2, 3)
+        tensor2 = t.zeros(5, 3)
+        result = z_simple_noise.cat([tensor1], [tensor2])
+        assert result.shape == (7, 3)
 
-        # Expected: weighted sum across the dimension
-        print(z.W_C.shape, z.W_Ei.shape, z.W_Es.shape)
-        expected_center = einsum(z.W_C, weights, pattern)
-        expected_inf = einsum(z.W_Ei, weights, "d Ei, b d -> b Ei")
-        expected_special = einsum(z.W_Es, weights, "d Es, b d -> b Es")
+    def test_cat_2(self, z_simple_noise):
+        # Test the inherited cat method
+        tensor1 = t.ones(3, 2)
+        tensor2 = t.zeros(3, 5)
+        result = z_simple_noise.cat([tensor1, tensor2])
+        assert result.shape == (3, 7)
 
-        assert t.allclose(result.W_C, expected_center)
-        assert t.allclose(result.W_Ei, expected_inf)
-        assert t.allclose(result.W_Es, expected_special)
+    def test_as_sparse_tensor(self, z_simple_noise):
+        sparse = z_simple_noise.as_sparse_tensor([[1, 0, 0], [0, 1, 0]])
+        assert sparse.is_sparse
 
-    def test_sample_point(self, simple_zonotope):
-        """Test sampling points from the zonotope."""
-        z = simple_zonotope
-        n_samples = 10
+    def test_empty_elements_cat_error(self, z_simple_noise):
+        with pytest.raises(ValueError, match="No elements provided"):
+            z_simple_noise.cat()
 
-        # Test default sampling
-        samples = z.sample_point(n_samples)
-        assert samples.shape == (n_samples, 2)
+    def test_different_I_warning(self, z_simple_noise):
+        # Create zonotope with different number of error terms
+        z_different_I = Zonotope.from_values([1, 2, 3], [[1, 0], [0, 1], [1, 1]])
 
-        # Test binary sampling
-        samples = z.sample_point(n_samples, use_binary_weights=True)
-        assert samples.shape == (n_samples, 2)
+        # This should trigger a warning and expand error terms
+        result = z_simple_noise + z_different_I
+        assert max(z_simple_noise.I, z_different_I.I) == result.I
 
-        # Test sampling without special terms
-        samples = z.sample_point(n_samples, include_special_terms=False)
-        assert samples.shape == (n_samples, 2)
+    def test_zero_I_handling(self):
+        # Test zonotopes with no error terms
+        z1 = Zonotope.from_values([1, 2, 3])
+        z2 = Zonotope.from_values([4, 5, 6])
 
-        # Test sampling without infinity terms
-        samples = z.sample_point(n_samples, include_infinity_terms=False)
-        assert samples.shape == (n_samples, 2)
-
-        # Just check shapes and no errors - full validation of sampling
-        # distribution would need statistical tests
-
-    def test_rearrange(self, batch_zonotope):
-        """Test rearrangement operations."""
-        z = batch_zonotope
-
-        # Test simple transpose operation
-        result = z.rearrange("batch dim -> dim batch")
-        assert result.W_C.shape == (2, 3)  # Transposed from (3, 2)
-        assert result.W_Ei.shape == (
-            2,
-            3,
-            2,
-        )  # Transposed with error dimension preserved
-        assert result.W_Es.shape == (
-            2,
-            3,
-            3,
-        )  # Transposed with error dimension preserved
-
-        # Test reshape operation
-        result = z.rearrange("batch dim -> (batch dim)")
-        assert result.W_C.shape == (6,)  # Flattened from (3, 2)
-        assert result.W_Ei.shape == (6, 2)  # Flattened with error dimension preserved
-        assert result.W_Es.shape == (6, 3)  # Flattened with error dimension preserved
-
-    def test_repeat(self, simple_zonotope):
-        """Test repetition operations."""
-        z = simple_zonotope
-
-        # Test simple repeat operation
-        result = z.repeat("dim -> repeat dim", repeat=3)
-        assert result.W_C.shape == (3, 2)  # Repeated from (2,)
-        assert result.W_Ei.shape == (3, 2, 2)  # Repeated with error dimension preserved
-        assert result.W_Es.shape == (3, 2, 3)  # Repeated with error dimension preserved
-
-    def test_sum(self, batch_zonotope):
-        """Test summation operations."""
-        z = batch_zonotope
-
-        # Test sum along batch dimension
-        result = z.sum(dim=0)
-        assert result.W_C.shape == (2,)  # Summed from (3, 2)
-        assert result.W_Ei.shape == (2, 2)  # Summed with error dimension preserved
-        assert result.W_Es.shape == (2, 3)  # Summed with error dimension preserved
-
-        # Check values for center
-        expected_center_sum = t.sum(z.W_C, dim=0)
-        assert t.allclose(result.W_C, expected_center_sum)
-
-    def test_getitem(self, batch_zonotope):
-        """Test slicing operations."""
-        z = batch_zonotope
-
-        # Test single index
-        result = z[0]
-        assert result.W_C.shape == (2,)
-        assert result.W_Ei.shape == (2, 2)
-        assert result.W_Es.shape == (2, 3)
-        assert t.allclose(result.W_C, z.W_C[0])
-
-        # Test slice
-        result = z[:2]
-        assert result.W_C.shape == (2, 2)
-        assert result.W_Ei.shape == (2, 2, 2)
-        assert result.W_Es.shape == (2, 2, 3)
-        assert t.allclose(result.W_C, z.W_C[:2])
-
-        # Test multi-dimensional slice
-        result = z[:2, 0]
-        assert result.W_C.shape == (2,)
-        assert result.W_Ei.shape == (2, 2)
-        assert result.W_Es.shape == (2, 3)
-        assert t.allclose(result.W_C, z.W_C[:2, 0])
-
-        # Test with ellipsis
-        result = z[..., 0]
-        assert result.W_C.shape == (3,)
-        assert result.W_Ei.shape == (3, 2)
-        assert result.W_Es.shape == (3, 3)
-        assert t.allclose(result.W_C, z.W_C[..., 0])
-
-    def test_len(self, simple_zonotope, batch_zonotope):
-        """Test length (number of elements)."""
-        assert len(simple_zonotope) == 2
-        assert len(batch_zonotope) == 6  # 3x2
-
-
-# Test utility functions
-def test_dual_norm():
-    """Test the dual_norm utility function."""
-    assert dual_norm(1) == float("inf")
-    assert dual_norm(2) == 2
-    assert dual_norm(3) == 1.5
-    assert dual_norm(float("inf")) == 1
+        result = z1 + z2
+        assert result.I == 0
+        result.assert_equal(W_C=[5, 7, 9])

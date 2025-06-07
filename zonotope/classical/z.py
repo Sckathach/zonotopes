@@ -87,15 +87,14 @@ class Zonotope(ZonotopeBase):
         W_C: Optional[Float[Tensor, "..."]] = None,
         W_G: Optional[Float[Tensor, "... I"]] = None,
     ) -> Self:
-        return super().__class__(
+        return self.__class__(
             W_C=self.W_C if W_C is None else W_C,
             W_G=self.W_G if W_G is None else W_G,
             clone=True,
         )
 
-    def add(self, other: Self | float | int | Tensor) -> Self:  # type: ignore
+    def add(self, other: Self | float | int | Tensor) -> Self:
         if isinstance(other, Zonotope):
-            assert self.I == other.I
             assert self.W_C.shape == other.W_C.shape
 
             if self.I != other.I:
@@ -236,3 +235,26 @@ class Zonotope(ZonotopeBase):
 
         self.W_C[key] = value
         self.W_G[error_key] = value
+
+    def assert_equal(self, W_C: Any = None, W_G: Any = None) -> None:
+        if W_C is not None:
+            try:
+                assert t.allclose(self.W_C, self.as_tensor(W_C))
+            except AssertionError as e:
+                print(f"Centers are differents: \n{self.W_C}\n{self.as_tensor(W_C)}\n")
+                raise AssertionError(e) from e
+        if W_G is not None:
+            try:
+                assert t.allclose(self.W_G, self.as_tensor(W_G))
+            except AssertionError as e:
+                print(
+                    f"Generators are differents: \n{self.W_G}\n{self.as_tensor(W_G)}\n"
+                )
+                raise AssertionError(e) from e
+
+    def equal(self, other: Any) -> bool:
+        if not isinstance(other, Zonotope):
+            return False
+
+        other = other.to(device=self.device, dtype=self.dtype)
+        return t.allclose(self.W_C, other.W_C) and t.allclose(self.W_G, other.W_G)

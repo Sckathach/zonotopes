@@ -1,8 +1,7 @@
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 import einx
 import torch as t
-from jaxtyping import Float
 from torch import Tensor
 
 from zonotope.classical.z import Zonotope
@@ -36,13 +35,11 @@ def empirical_soundness(
     assert t.all(sample < upper + eps)
 
 
-def check_bounds(
-    z: Zonotope, expected_lower: Float[Tensor, "N"], expected_upper: Float[Tensor, "N"]
-) -> None:
+def check_bounds(z: Zonotope, expected_lower: Any, expected_upper: Any) -> None:
     lower, upper = z.concretize()
-    assert t.allclose(lower, expected_lower.to(lower.device)), (
+    assert t.allclose(lower, z.as_tensor(expected_lower)), (
         f"Expected lower {expected_lower}, but got {lower}"
     )
-    assert t.allclose(upper, expected_upper.to(upper.device)), (
+    assert t.allclose(upper, z.as_tensor(expected_upper)), (
         f"Expected upper {expected_upper}, but got {upper}"
     )

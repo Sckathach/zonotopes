@@ -1,5 +1,5 @@
-import math
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional, ParamSpec, TypeVar
 
 import torch as t
 
@@ -9,13 +9,6 @@ def get_dim_for_error_terms(dim: int | List[int]) -> int | List[int]:
         return dim - 1 if dim < 0 else dim
 
     return [d - 1 if d < 0 else d for d in dim]
-
-
-def dual_norm(p: float) -> float:
-    if math.isinf(p):
-        return 1
-
-    return float("inf") if p == 1 else p / (p - 1)
 
 
 def parse_einops_pattern(
@@ -73,3 +66,19 @@ def get_einops_pattern_for_error_terms(pattern: str) -> str:
         return f"{patterns['pattern_in']} E -> {patterns['pattern_out']} E"
 
     return f"{patterns['pattern_left_in']} E, {patterns['pattern_right_in']} -> {patterns['pattern_out']} E"
+
+
+T = TypeVar("T")
+P = ParamSpec("P")
+
+
+def timer(func: Callable[P, T]) -> Callable[P, T]:
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+        tstart = time.perf_counter()
+        out = func(*args, **kwargs)
+        print(
+            f"function: {func.__name__} ran in {(time.perf_counter() - tstart)} seconds"
+        )
+        return out
+
+    return inner
